@@ -1,0 +1,25 @@
+# HLS/Vivado 생성물. run_hls.tcl 과 소스에서 재생성 가능하다
+*_prj/
+*.jou
+*.log
+.Xil/
+
+# 빌드 산출물과 대용량 바이너리
+*.xsa
+*.bit
+*.bit.bin
+*.elf
+*.aarch64
+
+# CMake / C++ build outputs
+build/
+CMakeCache.txt
+CMakeFiles/
+cmake_install.cmake
+Makefile
+*.o
+*.obj
+
+# Python
+__pycache__/
+*.py[cod]

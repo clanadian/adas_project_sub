@@ -1,0 +1,12 @@
+source: https://github.com/clanadian/kr260_adas_ps.git
+commit: 122cd6c777d02d4dac1fd7d9c163287daf761a81
+copied: 2026-08-18
+
+이 디렉터리는 위 커밋의 common/ 을 그대로 복사한 것이다.
+
+힙 할당·STL 컨테이너·예외·RTTI를 쓰지 않는 제한된 C++17 방언이라
+Cortex-A9에서도 그대로 컴파일된다. 이 제약은 원래 R5 베어메탈 때문에
+생긴 것이고 Arty Z7-20에는 R5가 없지만, **제약은 그대로 유지한다.**
+그래야 여기서 고친 것을 KR260 저장소로 되돌릴 수 있다.
+
+common/ 을 수정할 때는 다른 변경과 섞지 말고 별도 커밋으로 남긴다.

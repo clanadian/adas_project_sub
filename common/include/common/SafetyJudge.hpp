@@ -1,0 +1,81 @@
+#pragma once
+
+#include <cstddef>
+#include <cstdint>
+
+#include "common/SafetyMessage.hpp"
+
+//detection에서 안전 상태를 판단한다.
+//
+//힙을 쓰지 않고 std 컨테이너도 받지 않는다. R5 베어메탈에서 같은 코드가
+//돌아야 하기 때문이다. 입력은 포인터와 개수로 받는다.
+namespace safety {
+
+//UART_PROTOCOL_v0.md의 state 값과 같은 순서다.
+//숫자가 클수록 위험하다. 이 순서에 비교 연산이 의존한다.
+enum class State : uint8_t {
+    Clear = 0x00,
+    Slow  = 0x01,
+    Stop  = 0x02,
+};
+
+//판단 기준. 임계값은 실보드에서 조정한다.
+//
+//카메라에 depth가 없어 거리를 직접 알 수 없다. 대신 박스 높이를 거리
+//대용으로 쓴다. 가까울수록 크게 잡히기 때문이다. 정확한 거리가 아니라
+//"가까운가"만 판단하는 용도다.
+struct JudgeConfig {
+    //진행 경로 영역. 화면 하단 가운데가 로봇 바로 앞이다.
+    //옆 인도에 서 있는 사람 때문에 멈추지 않도록 가로를 좁힌다.
+    float zone_x_min = 0.25f;
+    float zone_x_max = 0.75f;
+
+    //박스 아랫변이 이 아래에 있어야 경로 안으로 본다.
+    //위쪽에 찍히는 것은 멀리 있는 것이다.
+    float zone_y_min = 0.55f;
+
+    //박스 높이 임계값. 이보다 크면 가깝다고 본다.
+    float stop_height = 0.45f;
+    float slow_height = 0.25f;
+
+    //이 점수 미만은 무시한다. decode 단계의 threshold와 별개로,
+    //안전 판단에서는 더 확실한 것만 보고 싶을 수 있다.
+    float min_score = 0.25f;
+};
+
+//위험 대상 클래스. model_io_v0.json의 순서를 따른다.
+inline constexpr int32_t kClassCar             = 0;
+inline constexpr int32_t kClassPerson          = 1;
+inline constexpr int32_t kClassSignWarning     = 2;
+inline constexpr int32_t kClassSignProhibition = 3;
+inline constexpr int32_t kClassSignMandatory   = 4;
+
+//car/person만 해당한다. 거리 대용(박스 높이)으로 Stop/Slow를 가른다.
+bool isHazardClass(int32_t class_id);
+
+//표지판 3종. 모델이 개별 표지가 아니라 분류 단위로만 구분해 규제·경고·지시를
+//더 세분화할 수 없다. 경로 안에 있으면 곧바로 Stop이다 — 높이(거리 대용)는
+//보지 않는다. 반복 트리거 방지(같은 표지판을 지나칠 때 계속 멈추지 않는 것)와
+//일정 시간 뒤 재출발은 여기서 다루지 않는다. `HazardLatch`(SafetyHazardLatch.hpp)
+//의 몫이다 — car/person/표지판 전부 같은 방식으로 다룬다.
+bool isSignClass(int32_t class_id);
+
+//detection 하나가 어느 수준인지 본다. 경로 밖이거나 점수가 낮으면 Clear다.
+State judgeOne(const DetectionRecord& det, const JudgeConfig& config);
+
+//전체에서 가장 위험한 것을 고른다. 하나라도 Stop이면 Stop이다.
+//items가 null이거나 count가 0이면 Clear다.
+State judge(const DetectionRecord* items, size_t count, const JudgeConfig& config);
+
+//judge()와 같지만 exclude_class(보통 -1: 아무것도 제외 안 함)를 건너뛰고,
+//가장 위험한 detection의 class_id를 out_class에 남긴다(없으면 -1).
+//HazardLatch가 "이미 처리한 class를 빼고 다시 판단"할 때 쓴다.
+State judgeWorst(const DetectionRecord* items, size_t count, const JudgeConfig& config,
+                 int32_t exclude_class, int32_t* out_class);
+
+//items 중 target_class가 경로 안에서 판단 게이트(점수·zone)를 통과해
+//하나라도 있으면 true. target_class < 0이면 항상 false.
+bool classPresent(const DetectionRecord* items, size_t count, int32_t target_class,
+                  const JudgeConfig& config);
+
+}  // namespace safety
