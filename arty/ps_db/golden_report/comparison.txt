@@ -1,0 +1,5 @@
+run_status=0
+errno=0
+duration_us=6570
+output_bytes=9216
+mismatch_count=0

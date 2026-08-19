@@ -1,5 +1,5 @@
 PETALINUX_VER=2024.2
 VALIDATE_HW_CHKSUM=1
-HARDWARE_PATH=/home/adas/adas_project_sub/docs/classifier_z7_db.xsa
+HARDWARE_PATH=/home/adas/a/classifier_z7 (1).xsa
 HDF_EXT=xsa
 YOCTO_SDK=f20b3d97af7961e8a255990489779ec7e341165af8ded0845145cd1cbfa5b91f

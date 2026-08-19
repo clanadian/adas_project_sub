@@ -173,7 +173,7 @@ PS main: `arty/ps_db/tools/ps_classifier_server.c`
 ## 11. 아직 외부 산출물이 필요한 부분
 
 - Jetson proposal ONNX는 `jetson/models/proposal/`에 반영됨
-- Arty INT8 v2 모델과 golden은 `arty/models/roi_classifier_int8_v2/`에 반영됨
+- Arty INT8 모델과 golden은 `arty/models/roi_classifier_int8_db/`에 반영됨
 - `RoiProposer`의 TensorRT C++ 추론 코드
 - 최종 XSA/bitstream 및 Linux device tree
 - 예약 DDR 물리주소

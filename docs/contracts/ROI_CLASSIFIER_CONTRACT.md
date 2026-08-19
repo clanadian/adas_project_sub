@@ -1,8 +1,18 @@
 # ROI 분류 파이프라인 계약
 
 이 문서는 Jetson Nano, Arty Z7-20 PS, PL ROI 분류 가속기 사이의
-현재 계약을 정의한다. PL 동작의 정본은
-`arty/pl/hls/HW/classifier_engine.*`이다.
+현재 계약을 정의한다.
+
+PL 구현이 담당자별로 둘로 나뉘어 있고 **산술이 서로 다르다**. PL 동작의 정본은
+변종별로 아래를 본다.
+
+| 변종 | PL 정본 | INT8 가중치 |
+| --- | --- | --- |
+| DB | `arty/pl_db/hls/HW/classifier_engine.*` | `arty/models/roi_classifier_int8_db/` |
+| EB | `arty/pl_eb/conv_engine_tr8/HW/conv_engine.*` | `arty/models/roi_classifier_int8_eb/` |
+
+아래 §1~ 의 데이터 형식·전송 규약은 두 변종에 공통이다. 활성화·requant 규칙은
+변종마다 다르므로 각 PL 정본을 따른다.
 
 ## 1. 전체 데이터 흐름
 

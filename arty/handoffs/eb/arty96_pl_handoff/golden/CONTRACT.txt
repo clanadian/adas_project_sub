@@ -24,6 +24,6 @@ PS 몫       : GAP(12x12 평균) -> 64, FC 64xN -> INT32 logits, argmax/softmax.
      양쪽에 다 적용하면 argmax 는 그대로 맞고 confidence 만 틀린다.
 
 재양자화 (자리끼우개 - 학습 후 manifest 값으로 교체 후 재생성)
-  conv0: mult=1264723901 shift=37 leaky=1
-  conv1: mult=987654321 shift=36 leaky=1
-  conv2: mult=123456789 shift=35 leaky=0
+  conv0: mult=1545298110 shift=37 leaky=1
+  conv1: mult=1525725976 shift=36 leaky=1
+  conv2: mult=1924470265 shift=39 leaky=0

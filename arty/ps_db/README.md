@@ -61,10 +61,10 @@ Dummy server:
 ./arty/ps_db/build/ps_classifier_server
 ```
 
-배포용 INT8 v2 모델과 golden은 다음 위치에 있다.
+배포용 INT8 모델과 golden은 다음 위치에 있다.
 
 ```text
-arty/models/roi_classifier_int8_v2/export/
+arty/models/roi_classifier_int8_db/export/
 ```
 
 실행 시 model directory에는 위 `export/` 경로를 전달한다. GAP은 144개 값의

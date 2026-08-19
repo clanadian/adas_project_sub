@@ -47,7 +47,9 @@ network byte order를 사용한다.
 | `jetson/` | 캡처, ROI 생성, crop, TCP client |
 | `arty/ps_db/` | DB PL용 TCP server, 전처리, 가속기 제어, 후처리 |
 | `arty/ps_eb/` | EB PL용 PS 구현 작업 트리 |
-| `arty/pl/` | 96×96 ROI 분류 가속기 HLS 소스와 보고서 |
+| `arty/pl_db/` | DB 96×96 ROI 분류 가속기 HLS 소스와 보고서 |
+| `arty/pl_eb/` | EB 96×96 ROI 분류 가속기 HLS 소스, 골든, PS7 프리셋 |
+| `arty/models/` | INT8 양자화 산출물 (db·eb 각각, 교환 불가) |
 | `shared/` | Jetson–PS 공통 TCP 프로토콜 |
 | `docs/contracts/` | 전체 데이터·하드웨어 계약 |
 

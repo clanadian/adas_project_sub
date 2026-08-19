@@ -2,6 +2,8 @@
 *_prj/
 *.jou
 *.log
+# EB 핸드오프의 cosim/csynth 로그는 성능 수치의 근거라 남긴다
+!arty/pl_eb/logs/*.log
 .Xil/
 
 # 빌드 산출물과 대용량 바이너리
@@ -26,8 +28,9 @@ CMakeCache.txt
 CMakeFiles/
 cmake_install.cmake
 Makefile
-!arty/ps/kernel/Makefile
-!arty/classifier_linux/project-spec/meta-user/recipes-modules/adas-classifier/files/Makefile
+!arty/ps_db/kernel/Makefile
+!arty/ps_eb/kernel/Makefile
+!arty/classifier_linux_db/project-spec/meta-user/recipes-modules/adas-classifier/files/Makefile
 *.o
 *.obj
 

@@ -1,0 +1,98 @@
+{
+  "pl_contract_ref": "hls/arty_96_classifier/ (conv_engine.cpp:76, conv0_engine.cpp:47)",
+  "pl_prototype_variant": "arty_96 (leaky 13/128 on conv0/conv1, conv2 linear, round_shift, saturate [-128,127])",
+  "sibling_variant_note": "The other prototype (z7_classifier_64_hls: plain ReLU, truncating >>, clamp [0,127]) has its own weight set in roi_classifier_int8_export/. The two are NOT interchangeable \u2014 same file sizes and dtypes, different arithmetic, so no format check catches a mix-up.",
+  "checkpoint": "/home/user/fpga_roi_classifier_data/runs/leaky_finetune_r96/best.pt",
+  "classes": [
+    "background",
+    "car",
+    "person",
+    "sign_warning",
+    "sign_prohibition",
+    "sign_mandatory"
+  ],
+  "input": {
+    "logical_roi": "96x96x3 RGB UINT8",
+    "ps_preprocess": "symmetric INT8, zero_point=0, then 1px zero border -> 98x98x3 signed INT8 NHWC to PL",
+    "quant_formula": "q_int8 = clamp(round(pixel_u8 * 127 / 255), 0, 127)",
+    "input_scale": 0.007874015748031496
+  },
+  "layers": {
+    "conv0": {
+      "weight_file": "w_conv0.bin",
+      "weight_layout": "OIHW [16][3][3][3], no transpose",
+      "bias_file": "b_conv0.bin",
+      "bias_dtype": "INT32[16]",
+      "weight_scale": 0.019637102217186155,
+      "input_scale": 0.007874015748031496,
+      "output_scale": 0.013752170435086948,
+      "requant_multiplier": 1545298110,
+      "requant_shift": 37,
+      "bias_includes_rounding_compensation": 0
+    },
+    "conv1": {
+      "weight_file": "w_conv1.bin",
+      "weight_layout": "WPACK [32][3][3][16] = OIHW.transpose(0,2,3,1)",
+      "bias_file": "b_conv1.bin",
+      "bias_dtype": "INT32[32]",
+      "weight_scale": 0.018827810062198188,
+      "input_scale": 0.013752170435086948,
+      "output_scale": 0.011662035476504348,
+      "requant_multiplier": 1525725976,
+      "requant_shift": 36,
+      "bias_includes_rounding_compensation": 0
+    },
+    "conv2": {
+      "weight_file": "w_conv2.bin",
+      "weight_layout": "WPACK [64][3][3][32] = OIHW.transpose(0,2,3,1)",
+      "bias_file": "b_conv2.bin",
+      "bias_dtype": "INT32[64]",
+      "weight_scale": 0.018435759807196188,
+      "input_scale": 0.011662035476504348,
+      "output_scale": 0.061417767382043555,
+      "requant_multiplier": 1924470265,
+      "requant_shift": 39,
+      "bias_includes_rounding_compensation": 0,
+      "pl_final_output": "12x12x64 signed INT8 NHWC"
+    }
+  },
+  "activation": {
+    "conv0": "leaky ReLU 13/128 (applied to the INT32 accumulator, before requant)",
+    "conv1": "leaky ReLU 13/128 (same)",
+    "conv2": "LINEAR \u2014 no activation; negatives pass through uncompressed into GAP",
+    "leaky_formula": "if acc < 0: acc = round_shift(acc * 13, 7)"
+  },
+  "requant_formula": "out = saturate(round_shift(post_leaky_acc_int64 * multiplier, shift)) to [-128, 127]",
+  "export_side_transforms": {
+    "cross_layer_equalization": {
+      "applied": true,
+      "iterations": 3,
+      "why": "PL mandates per-tensor weight scales; conv0's per-output-channel weight range spanned 24x, so one tensor-wide scale left the smallest channel ~5 of 127 levels. CLE rescales channel i of layer L by 1/s and input channel i of layer L+1 by s \u2014 exactly function-preserving for positively-homogeneous activations (leaky ReLU, identity) and for maxpool/GAP \u2014 collapsing the spread to ~4x.",
+      "effect": "weight-quantization-only accuracy 75.5% -> 93.5%",
+      "pl_impact": "NONE \u2014 same file layouts, dtypes, op sequence; only the numbers differ."
+    },
+    "calibration": {
+      "method": "percentile",
+      "percentile": 99.5,
+      "n_crops": 512
+    }
+  },
+  "rounding": "round_shift = ties away from zero, sign-symmetric: x>=0 -> (x + (1<<(s-1))) >> s ; x<0 -> -(((-x) + (1<<(s-1))) >> s). NOT an arithmetic right shift. The multiply must use a 64-bit intermediate.",
+  "output_range": "signed INT8 [-128, 127] \u2014 NOT [0,127]. Negative activations are normal in this variant.",
+  "gap": {
+    "mode": "sum (NOT mean) over the 12x12=144 spatial positions per channel, INT32 accumulator",
+    "divisor": 144,
+    "divisor_folded_into_fc": true,
+    "note": "PS does NOT divide by 144 anywhere \u2014 the 1/144 is baked into fc_bias_scale / logits_scale below. Do not apply it twice."
+  },
+  "fc": {
+    "weight_file": "fc_weight.bin",
+    "weight_layout": "INT8 [N][64], N=len(classes)=6",
+    "bias_file": "fc_bias.bin",
+    "bias_dtype": "INT32[6]",
+    "weight_scale": 0.018435761684507834,
+    "gap_output_scale": 0.00042651227348641357,
+    "logits_scale": 7.863078629513149e-06,
+    "note": "argmax(logits_int32) directly gives the correct class \u2014 logits_scale is only needed if a real-valued confidence/softmax is wanted, not for classification itself (a single shared scale across all N outputs preserves argmax ordering)."
+  }
+}
