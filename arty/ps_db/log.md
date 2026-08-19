@@ -36,4 +36,3 @@ classifier_linux:~$ sudo /home/petalinux/ps_classifier_server "*" 5000 /home/pet
 Password: 
 classifier server listening on port 5000
 
-
