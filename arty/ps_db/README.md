@@ -20,14 +20,20 @@ TCP server
 | --- | --- | --- |
 | `tcp_roi_server` | persistent TCP server | 구현·테스트 |
 | `roi_preprocessor` | UINT8→INT8, 1-pixel padding | 구현·테스트 |
-| `adas_classifier_drv` | AXI-Lite와 coherent DMA 버퍼 소유 | 구현·타깃 검증 대기 |
+| `adas_classifier_drv` | AXI-Lite와 coherent DMA 버퍼 소유 | 구현·실보드 검증 완료 |
 | `classifier_device` | `/dev/adas_classifier` ioctl/mmap wrapper | 구현·빌드 확인 |
 | `pl_mmio` | 초기 bring-up용 `/dev/mem` MMIO | 단위 테스트용으로 유지 |
 | `classifier_registers` | AXI-Lite base와 register offset | 확정 |
-| `classifier_accelerator` | buffer/parameter/start/done 제어 | 구현·가짜 MMIO 테스트 |
+| `classifier_accelerator` | buffer/parameter/start/done 제어 | 구현·실보드 검증 완료 |
 | `dummy_roi_service` | PL 없이 고정 결과 반환 | 임시·테스트 |
 | `classifier_model` | Conv/FC 바이너리 로드·크기 검사 | 구현·테스트 |
-| GAP/FC/argmax | PL 출력 후처리 | 구현·계약값 대기 |
+| GAP/FC/argmax | PL 출력 후처리 | 구현·실보드 bit-exact 검증 완료 |
+| `adas_classifier_confidence_ppm` | logits×logits_scale → softmax → confidence_ppm | 구현·golden 벡터 일치 확인 |
+
+`실보드 검증`은 `ps_db_golden_test`(PL 출력 bit-exact 대조)와 실제 Jetson 카메라
+연동 테스트로 확인한 것이다. 자세한 내용과 수치는
+[`../../docs/DB_ARTY_BRINGUP_REPORT.md`](../../docs/DB_ARTY_BRINGUP_REPORT.md)에
+있다.
 
 ## AXI-Lite map
 
@@ -69,6 +75,16 @@ arty/models/roi_classifier_int8_db/export/
 
 실행 시 model directory에는 위 `export/` 경로를 전달한다. GAP은 144개 값의
 합계를 그대로 FC에 넣으므로 현재 `gap-div` 실행 인자는 `1`이다.
+
+마지막 인자 `logits-scale`은 `export/manifest.json`의 `logits_scale` 값을
+그대로 전달한다 (예: `2.9190799511495295e-05`). confidence_ppm 계산에만
+쓰이고 class_id(argmax) 자체에는 영향이 없다 - 이 값이 없어도 분류 결과는
+같지만 confidence_ppm이 항상 0으로 나간다.
+
+```bash
+./arty/ps_db/build/ps_classifier_server "*" 5000 arty/models/roi_classifier_int8_db/export \
+    6 1 1342756158 38 1322019071 35 1920779908 38 2.9190799511495295e-05
+```
 
 개념과 코드의 대응은 `docs/PS_PIPELINE_STUDY.md`에 정리되어 있다.
 

@@ -18,11 +18,20 @@ V4L2 YUYV
 
 | 컴포넌트 | 역할 | 상태 |
 | --- | --- | --- |
-| `V4L2Capture` | V4L2 MMAP 캡처, YUYV→BGR | 구현 |
-| `RoiProposer` | bbox 후보 생성·정렬·제한 | 모델 대기 |
+| `V4L2Capture` | V4L2 MMAP 캡처, YUYV→BGR | 구현·실카메라 확인 |
+| `RoiProposer` | bbox 후보 생성·정렬·제한 (TensorRT YOLOv8n) | 구현·실보드 연동 확인 |
 | `RoiCropper` | margin, square crop, padding, resize | 구현·테스트 |
 | `RoiPreprocessor` | BGR→RGB | 구현·테스트 |
-| `TcpRoiClient` | ROI 전송, 결과 수신 | 구현·왕복 테스트 |
+| `TcpRoiClient` | ROI 전송, 결과 수신 | 구현·실보드 연동 확인 |
+| `MjpegStreamServer` | 카메라 프레임 + 분류 결과를 MJPEG-over-HTTP로 스트리밍 | 구현 |
+
+`실보드 연동`은 Arty DB 보드에 실제 카메라 프레임을 계속 전송해 확인한
+것이다. 자세한 수치는
+[`../docs/DB_ARTY_BRINGUP_REPORT.md`](../docs/DB_ARTY_BRINGUP_REPORT.md) §5를
+본다. `MjpegStreamServer`를 분류 루프에 안전하게 붙이는 방법(별도 스레드,
+넌블로킹 소켓 쓰기)은
+[`../docs/JETSON_MJPEG_STREAM_NOTES.md`](../docs/JETSON_MJPEG_STREAM_NOTES.md)에
+있다.
 
 ## Proposal model
 
@@ -99,7 +108,12 @@ maximum score difference: 0.00417
 Run:
 
 ```bash
-./jetson/build/jetson_roi_client /dev/video0 <PS_IP> 5000
+./jetson/build/jetson_roi_client /dev/video0 <PS_IP> 5000 \
+    models/proposal/export/proposal_yolov8n_fp16.engine [mjpeg-port]
 ```
 
-`RoiProposer` 모델이 없는 연결 시험에서는 마지막에 `--full-frame`을 추가한다.
+`RoiProposer` 모델이 없는 연결 시험에서는 네 번째 인자를 `--full-frame`으로
+바꾼다. 다섯 번째 인자 `mjpeg-port`는 선택이다 - 주면
+`http://<jetson-ip>:<mjpeg-port>/`로 카메라 화면 위에 ROI 박스와 분류
+결과(class + confidence%)를 겹쳐서 볼 수 있다. 안 주면 스트리밍 없이 이전과
+동일하게 동작한다 (추가 스레드도 뜨지 않는다).
