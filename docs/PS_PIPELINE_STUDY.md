@@ -57,7 +57,7 @@ TCP는 한 번의 `send()`나 `recv()`가 요청한 전체 길이를 처리한�
 
 ## 4. PS 전처리
 
-관련 코드: `arty/ps/src/preprocess/roi_preprocessor.c`
+관련 코드: `arty/ps_db/src/preprocess/roi_preprocessor.c`
 
 Jetson에서 받은 값은 `96×96×3 RGB UINT8`이다. PS는 다음 변환을 수행한다.
 
@@ -93,7 +93,7 @@ PS가 AXI-Lite 레지스터에 DDR 주소를 쓰면 PL의 AXI master가 해당 D
 
 ## 6. MMIO와 mmap
 
-관련 코드: `arty/ps/src/accelerator/pl_mmio.c`
+관련 코드: `arty/ps_db/src/accelerator/pl_mmio.c`
 
 MMIO는 장치 레지스터에 메모리 주소가 배정된 방식이다. Linux 사용자 프로그램은 물리주소를
 직접 포인터처럼 사용할 수 없으므로 `/dev/mem`을 열고 `mmap()`으로 프로세스 가상주소에
@@ -111,7 +111,7 @@ PL 레지스터 물리주소
 
 ## 7. 가속기 제어
 
-관련 코드: `arty/ps/src/accelerator/classifier_accelerator.c`
+관련 코드: `arty/ps_db/src/accelerator/classifier_accelerator.c`
 
 1. 두 AXI-Lite 영역을 mmap한다.
 2. 입력, weight, 출력 DDR 물리주소를 쓴다.
@@ -125,7 +125,7 @@ PL 레지스터 물리주소
 
 ## 8. GAP, FC, argmax
 
-관련 코드: `arty/ps/src/postprocess/classifier_postprocess.c`
+관련 코드: `arty/ps_db/src/postprocess/classifier_postprocess.c`
 
 PL 출력은 `12×12×64`이다. GAP는 각 채널의 12×12 값 144개를 하나로 합쳐 특징 64개를
 만든다.
@@ -146,7 +146,7 @@ logit scale과 softmax 계약이 확정돼야 계산할 수 있다.
 
 ## 9. 모델 로더
 
-관련 코드: `arty/ps/src/model/classifier_model.c`
+관련 코드: `arty/ps_db/src/model/classifier_model.c`
 
 모델 로더는 Conv/FC 바이너리를 읽고 파일 크기가 하드웨어 계약과 정확히 같은지 검사한다.
 일부 파일만 읽힌 모델은 사용하지 않고 모두 정리한다.
@@ -163,7 +163,7 @@ Jetson main: `jetson/tools/jetson_roi_client.cpp`
 - crop과 RGB 전처리를 적용한다.
 - ROI별 분류를 요청하고 결과를 출력한다.
 
-PS main: `arty/ps/tools/ps_classifier_server.c`
+PS main: `arty/ps_db/tools/ps_classifier_server.c`
 
 - 모델과 예약 DDR을 준비한다.
 - PL 레지스터와 파라미터를 설정한다.

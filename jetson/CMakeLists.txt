@@ -107,13 +107,13 @@ add_test(
     COMMAND test_roi_cropper
 )
 
-if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/../arty/ps/src/network/tcp_roi_server.c")
+if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/../arty/ps_db/src/network/tcp_roi_server.c")
     add_executable(test_tcp_roi_client
         tests/test_tcp_roi_client.cpp
-        ../arty/ps/src/network/tcp_roi_server.c
+        ../arty/ps_db/src/network/tcp_roi_server.c
     )
 
-    target_include_directories(test_tcp_roi_client PRIVATE ../arty/ps/include)
+    target_include_directories(test_tcp_roi_client PRIVATE ../arty/ps_db/include)
     target_link_libraries(test_tcp_roi_client PRIVATE adas_jetson_pipeline Threads::Threads)
     target_compile_options(test_tcp_roi_client PRIVATE -Wall -Wextra -Wpedantic)
     add_test(NAME tcp_roi_client COMMAND test_tcp_roi_client)

@@ -1,0 +1,10 @@
+test_roi_protocol 2 0.000747698
+test_tcp_roi_server 2 0.0229885
+test_roi_preprocessor 2 0.00374423
+test_pl_mmio 2 0.00144109
+test_classifier_buffers 2 0.000668718
+test_classifier_accelerator 2 0.00129343
+test_classifier_postprocess 2 0.000682482
+test_classifier_model 2 0.00182441
+test_dummy_roi_service 2 0.002478
+---

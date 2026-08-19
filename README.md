@@ -45,7 +45,8 @@ network byte order를 사용한다.
 | 경로 | 내용 |
 | --- | --- |
 | `jetson/` | 캡처, ROI 생성, crop, TCP client |
-| `arty/ps/` | TCP server, PL 입력 전처리, 가속기 제어, 후처리 |
+| `arty/ps_db/` | DB PL용 TCP server, 전처리, 가속기 제어, 후처리 |
+| `arty/ps_eb/` | EB PL용 PS 구현 작업 트리 |
 | `arty/pl/` | 96×96 ROI 분류 가속기 HLS 소스와 보고서 |
 | `shared/` | Jetson–PS 공통 TCP 프로토콜 |
 | `docs/contracts/` | 전체 데이터·하드웨어 계약 |
@@ -59,7 +60,7 @@ cmake -S jetson -B jetson/build
 cmake --build jetson/build -j2
 ctest --test-dir jetson/build --output-on-failure
 
-cmake -S arty/ps -B arty/ps/build
-cmake --build arty/ps/build -j2
-ctest --test-dir arty/ps/build --output-on-failure
+cmake -S arty/ps_db -B arty/ps_db/build
+cmake --build arty/ps_db/build -j2
+ctest --test-dir arty/ps_db/build --output-on-failure
 ```
