@@ -23,6 +23,8 @@ target_include_directories(adas_ps_core
 )
 
 target_compile_options(adas_ps_core PRIVATE -Wall -Wextra -Wpedantic)
+# confidence_ppm 의 softmax 가 exp() 를 쓴다.
+target_link_libraries(adas_ps_core PUBLIC m)
 
 add_library(adas_ps_dummy STATIC src/app/dummy_roi_service.c)
 target_link_libraries(adas_ps_dummy PUBLIC adas_ps_core)
@@ -35,6 +37,11 @@ target_compile_options(ps_dummy_server PRIVATE -Wall -Wextra -Wpedantic)
 add_executable(ps_classifier_server tools/ps_classifier_server.c)
 target_link_libraries(ps_classifier_server PRIVATE adas_ps_core)
 target_compile_options(ps_classifier_server PRIVATE -Wall -Wextra -Wpedantic)
+
+# 온보드 단계별 golden 대조. 보드에서만 의미가 있지만 빌드는 여기서 막아 둔다.
+add_executable(ps_eb_golden_test tools/ps_eb_golden_test.c)
+target_link_libraries(ps_eb_golden_test PRIVATE adas_ps_core)
+target_compile_options(ps_eb_golden_test PRIVATE -Wall -Wextra -Wpedantic)
 
 enable_testing()
 

@@ -5,6 +5,8 @@
 #include <cstddef>
 #include <arpa/inet.h>
 #include <cerrno>
+#include <netinet/in.h>
+#include <netinet/tcp.h>
 #include <sys/socket.h>
 #include <unistd.h>
 #include <array>
@@ -59,6 +61,25 @@ TcpClientStatus TcpRoiClient::connectToServer(
     }
 
     socket_fd_ = new_socket;
+
+    return TcpClientStatus::Ok;
+}
+
+TcpClientStatus TcpRoiClient::setNoDelay(bool enable) noexcept {
+    if (!isConnected()) {
+        return TcpClientStatus::NotConnected;
+    }
+
+    const int value = enable ? 1 : 0;
+    if (::setsockopt(
+            socket_fd_,
+            IPPROTO_TCP,
+            TCP_NODELAY,
+            &value,
+            sizeof(value)
+    ) < 0) {
+        return TcpClientStatus::SystemError;
+    }
 
     return TcpClientStatus::Ok;
 }

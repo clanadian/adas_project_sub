@@ -74,9 +74,16 @@ void testClientServerRoundTrip() {
     std::thread server_thread(runServer, &server);
 
     adas::network::TcpRoiClient client;
+    // 연결 전에는 적용할 socket이 없다.
+    assert(client.setNoDelay(true)
+        == adas::network::TcpClientStatus::NotConnected);
     assert(client.connectToServer("127.0.0.1", server_port)
         == adas::network::TcpClientStatus::Ok);
     assert(client.isConnected());
+    // 연결 후에는 양방향으로 토글된다. socket에 실제로 반영되는지는
+    // arty/ps_db/tests/test_tcp_roi_server.c 가 getsockopt로 확인한다.
+    assert(client.setNoDelay(true) == adas::network::TcpClientStatus::Ok);
+    assert(client.setNoDelay(false) == adas::network::TcpClientStatus::Ok);
 
     adas::preprocess::PreparedRoi roi;
     roi.frame_id = 42u;

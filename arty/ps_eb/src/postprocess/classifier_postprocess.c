@@ -1,6 +1,7 @@
 #include "postprocess/classifier_postprocess.h"
 
 #include <limits.h>
+#include <math.h>
 
 adas_classifier_postprocess_status_t adas_classifier_gap_sum(
     const int8_t pl_output[ADAS_CLASSIFIER_OUTPUT_ELEMENTS],
@@ -110,5 +111,65 @@ adas_classifier_postprocess_status_t adas_classifier_argmax(
     }
 
     *class_id = (uint32_t)best_index;
+    return ADAS_CLASSIFIER_POSTPROCESS_OK;
+}
+
+adas_classifier_postprocess_status_t adas_classifier_confidence_ppm(
+    const int32_t* logits,
+    size_t class_count,
+    uint32_t argmax_class_id,
+    float logits_scale,
+    uint32_t* confidence_ppm
+) {
+    /* 잘못된 scale이나 클래스 범위 밖 인덱스는 계산할 수 없습니다. */
+    if (logits == NULL
+        || class_count == 0u
+        || argmax_class_id >= class_count
+        || !(logits_scale > 0.0F)
+        || confidence_ppm == NULL) {
+        return ADAS_CLASSIFIER_POSTPROCESS_INVALID_ARGUMENT;
+    }
+
+    /*
+     * 최댓값을 먼저 구해서 뺀 뒤 지수를 취합니다 - 이러면 가장 큰 항은
+     * exp(0)=1이 되고 나머지는 항상 exp(음수 또는 0)이라, class_count가
+     * 커져도 exp() 오버플로가 나지 않습니다.
+     */
+    double max_real_logit = -HUGE_VAL;
+    for (size_t index = 0u; index < class_count; ++index) {
+        const double real_logit = (double)logits[index] * (double)logits_scale;
+        if (real_logit > max_real_logit) {
+            max_real_logit = real_logit;
+        }
+    }
+
+    double sum_exp = 0.0;
+    double argmax_exp = 0.0;
+    for (size_t index = 0u; index < class_count; ++index) {
+        const double real_logit = (double)logits[index] * (double)logits_scale;
+        const double term = exp(real_logit - max_real_logit);
+        sum_exp += term;
+        if (index == argmax_class_id) {
+            argmax_exp = term;
+        }
+    }
+
+    /*
+     * 1,000,000 = ppm 정의(parts per million) 그 자체이며
+     * shared/include/roi_protocol.h의 ADAS_ROI_CONFIDENCE_PPM_MAX와 같은
+     * 값입니다. 이 모듈은 네트워크 와이어 포맷을 몰라도 되므로 그 헤더를
+     * include하지 않고 리터럴로 둡니다.
+     *
+     * sum_exp는 argmax_exp(=exp(0)=1)를 포함하므로 항상 1 이상입니다.
+     */
+    const double probability = argmax_exp / sum_exp;
+    double ppm = probability * 1000000.0;
+    if (ppm < 0.0) {
+        ppm = 0.0;
+    } else if (ppm > 1000000.0) {
+        ppm = 1000000.0;
+    }
+
+    *confidence_ppm = (uint32_t)(ppm + 0.5);
     return ADAS_CLASSIFIER_POSTPROCESS_OK;
 }

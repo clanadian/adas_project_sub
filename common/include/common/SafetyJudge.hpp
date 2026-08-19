@@ -19,6 +19,25 @@ enum class State : uint8_t {
     Stop  = 0x02,
 };
 
+//클래스 ID 매핑.
+//
+//프로젝트마다 모델의 클래스 순서가 다르다. KR260 은 car=0 부터 시작하고
+//background 가 없지만, Jetson-Arty 판은 background=0 이 앞에 붙어 전체가
+//한 칸씩 밀린다. 상수를 소스에 박으면 반대쪽에서 **오류 없이 car 를 person
+//으로 판단한다** - 실행 중에는 드러나지 않는 종류다.
+//
+//기본값은 KR260 값이라 그쪽 동작은 바뀌지 않는다.
+struct ClassMap {
+    int32_t car              = 0;
+    int32_t person           = 1;
+    int32_t sign_warning     = 2;
+    int32_t sign_prohibition = 3;
+    int32_t sign_mandatory   = 4;
+    //모델에 background 클래스가 없으면 -1. 있으면 그 id 는 위험 대상이
+    //아니라 "물체 아님"이므로 판단에서 제외한다.
+    int32_t background       = -1;
+};
+
 //판단 기준. 임계값은 실보드에서 조정한다.
 //
 //카메라에 depth가 없어 거리를 직접 알 수 없다. 대신 박스 높이를 거리
@@ -41,9 +60,13 @@ struct JudgeConfig {
     //이 점수 미만은 무시한다. decode 단계의 threshold와 별개로,
     //안전 판단에서는 더 확실한 것만 보고 싶을 수 있다.
     float min_score = 0.25f;
+
+    //모델의 클래스 ID 배치. 기본값은 KR260 순서다.
+    ClassMap classes;
 };
 
-//위험 대상 클래스. model_io_v0.json의 순서를 따른다.
+//위험 대상 클래스의 기본 ID. model_io_v0.json(KR260)의 순서다.
+//새 코드는 JudgeConfig::classes 를 쓴다 - 이 상수들은 기본값의 출처로만 남는다.
 inline constexpr int32_t kClassCar             = 0;
 inline constexpr int32_t kClassPerson          = 1;
 inline constexpr int32_t kClassSignWarning     = 2;
@@ -51,6 +74,7 @@ inline constexpr int32_t kClassSignProhibition = 3;
 inline constexpr int32_t kClassSignMandatory   = 4;
 
 //car/person만 해당한다. 거리 대용(박스 높이)으로 Stop/Slow를 가른다.
+bool isHazardClass(int32_t class_id, const ClassMap& classes);
 bool isHazardClass(int32_t class_id);
 
 //표지판 3종. 모델이 개별 표지가 아니라 분류 단위로만 구분해 규제·경고·지시를
@@ -58,6 +82,7 @@ bool isHazardClass(int32_t class_id);
 //보지 않는다. 반복 트리거 방지(같은 표지판을 지나칠 때 계속 멈추지 않는 것)와
 //일정 시간 뒤 재출발은 여기서 다루지 않는다. `HazardLatch`(SafetyHazardLatch.hpp)
 //의 몫이다 — car/person/표지판 전부 같은 방식으로 다룬다.
+bool isSignClass(int32_t class_id, const ClassMap& classes);
 bool isSignClass(int32_t class_id);
 
 //detection 하나가 어느 수준인지 본다. 경로 밖이거나 점수가 낮으면 Clear다.

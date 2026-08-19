@@ -86,6 +86,12 @@ arty/models/roi_classifier_int8_db/export/
     6 1 1342756158 38 1322019071 35 1920779908 38 2.9190799511495295e-05
 ```
 
+요청 한 건의 구간별 소요 시간(preprocess / pl_run / postprocess)은 실행 중
+자동으로 수집되고, 연결이 끊길 때 세션 요약이 출력된다. `ADAS_PS_CSV`,
+`ADAS_PS_REPORT_EVERY`, `ADAS_TCP_NODELAY` 사용법과 판정 절차는
+[`../../docs/FPS_MEASUREMENT_GUIDE.md`](../../docs/FPS_MEASUREMENT_GUIDE.md)에
+있다.
+
 개념과 코드의 대응은 `docs/PS_PIPELINE_STUDY.md`에 정리되어 있다.
 
 ## Board golden test

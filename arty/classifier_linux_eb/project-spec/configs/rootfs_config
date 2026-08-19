@@ -3769,6 +3769,7 @@ CONFIG_Init-manager-sysvinit=y
 #
 # user packages 
 #
+CONFIG_adas-classifier=y
 # CONFIG_gpio-demo is not set
 # CONFIG_peekpoke is not set
 

@@ -2,11 +2,12 @@
 
 #include "accelerator/classifier_accelerator.h"
 
+#include "accelerator/classifier_buffers.h"
+
 #include <stddef.h>
 #include <time.h>
 
 static int region_is_open(const adas_pl_mmio_region_t* region) {
-    /* /dev/mem과 가상 주소가 모두 준비됐는지 확인하는 공통 검사입니다. */
     return region != NULL && region->memory_fd >= 0 && region->base != NULL;
 }
 
@@ -15,7 +16,6 @@ static adas_classifier_status_t write_register(
     size_t offset,
     uint32_t value
 ) {
-    /* MMIO 계층의 오류를 가속기 계층의 오류 코드로 바꿉니다. */
     return adas_pl_mmio_write32(region, offset, value) == ADAS_PL_MMIO_OK
         ? ADAS_CLASSIFIER_OK
         : ADAS_CLASSIFIER_MMIO_ERROR;
@@ -28,8 +28,9 @@ static adas_classifier_status_t write_address(
     uintptr_t address
 ) {
     /*
-     * HLS 포인터 인자는 64비트 레지스터 두 개(low/high)로 표현됩니다.
-     * 32비트 Zynq 주소에서는 high가 보통 0이지만 계약대로 둘 다 씁니다.
+     * 포인터 인자는 low/high 레지스터 두 개다. Zynq-7000 은 32비트 주소라
+     * high 는 항상 0 이지만, 계약대로 둘 다 쓴다 — 이전 op 가 남긴 값이
+     * 살아 있으면 엉뚱한 주소를 읽는다.
      */
     const uint64_t value = (uint64_t)address;
     const uint32_t low = (uint32_t)(value & UINT32_MAX);
@@ -41,92 +42,167 @@ static adas_classifier_status_t write_address(
     return write_register(region, high_offset, high);
 }
 
-static adas_classifier_status_t write_requant(
-    adas_pl_mmio_region_t* region,
-    size_t low_offset,
-    size_t high_offset,
-    const adas_classifier_requant_t* requant
-) {
-    /* multiplier는 low 레지스터, shift는 그 다음 레지스터에 기록합니다. */
-    if (write_register(
-            region,
-            low_offset,
-            (uint32_t)requant->multiplier
-        ) != ADAS_CLASSIFIER_OK) {
-        return ADAS_CLASSIFIER_MMIO_ERROR;
-    }
-    return write_register(region, high_offset, (uint32_t)requant->shift);
-}
-
-static adas_classifier_status_t write_biases(
-    adas_pl_mmio_region_t* region,
-    size_t base_offset,
-    const int32_t* biases,
-    size_t count
-) {
-    /* 각 출력 채널의 INT32 bias를 연속된 AXI-Lite 레지스터에 씁니다. */
-    for (size_t i = 0u; i < count; ++i) {
-        if (write_register(
-                region,
-                base_offset + i * sizeof(uint32_t),
-                (uint32_t)biases[i]
-            ) != ADAS_CLASSIFIER_OK) {
-            return ADAS_CLASSIFIER_MMIO_ERROR;
-        }
-    }
-    return ADAS_CLASSIFIER_OK;
-}
-
 static uint64_t elapsed_milliseconds(
     const struct timespec* start,
     const struct timespec* current
 ) {
-    /* CLOCK_MONOTONIC 두 시각의 차이를 timeout 비교용 ms로 변환합니다. */
     const int64_t seconds = (int64_t)current->tv_sec - (int64_t)start->tv_sec;
     const int64_t nanoseconds =
         (int64_t)current->tv_nsec - (int64_t)start->tv_nsec;
     return (uint64_t)(seconds * 1000 + nanoseconds / 1000000);
 }
 
+/*
+ * ap_ctrl 의 특정 비트가 설 때까지 기다린다. idle 과 done 이 같은 모양이라
+ * 하나로 합쳤다 — 다른 것은 기다리는 비트뿐이다.
+ */
+static adas_classifier_status_t wait_for_bit(
+    adas_pl_mmio_region_t* region,
+    uint32_t mask,
+    uint32_t timeout_ms
+) {
+    struct timespec start;
+    if (clock_gettime(CLOCK_MONOTONIC, &start) != 0) {
+        return ADAS_CLASSIFIER_MMIO_ERROR;
+    }
+
+    const struct timespec polling_delay = { .tv_sec = 0, .tv_nsec = 100000 };
+
+    for (;;) {
+        uint32_t control = 0u;
+        if (adas_pl_mmio_read32(region, ADAS_EB_REG_CTRL, &control)
+            != ADAS_PL_MMIO_OK) {
+            return ADAS_CLASSIFIER_MMIO_ERROR;
+        }
+        if ((control & mask) != 0u) {
+            return ADAS_CLASSIFIER_OK;
+        }
+
+        struct timespec current;
+        if (clock_gettime(CLOCK_MONOTONIC, &current) != 0) {
+            return ADAS_CLASSIFIER_MMIO_ERROR;
+        }
+        if (elapsed_milliseconds(&start, &current) >= timeout_ms) {
+            return ADAS_CLASSIFIER_TIMEOUT;
+        }
+
+        (void)nanosleep(&polling_delay, NULL);
+    }
+}
+
+/* op 인덱스로 그 op 을 실행할 엔진의 제어 창을 고른다. */
+static adas_pl_mmio_region_t* region_for_kind(
+    adas_classifier_accelerator_t* accelerator,
+    unsigned kind
+) {
+    switch (kind) {
+    case ADAS_EB_OP_CONV0:   return &accelerator->conv0_region;
+    case ADAS_EB_OP_CONV:    return &accelerator->conv_region;
+    case ADAS_EB_OP_MAXPOOL: return &accelerator->maxpool_region;
+    default:                 return NULL;
+    }
+}
+
+/*
+ * op 하나의 입력·출력 버퍼.
+ *
+ * conv0 만 roi 를 읽고, 그 뒤로는 act_a / act_b 를 번갈아 쓴다.
+ *   op0: roi   -> act_a
+ *   홀수 op   : act_a -> act_b
+ *   짝수 op(>0): act_b -> act_a
+ * 그래서 op 이 6개(짝수)면 마지막 출력은 항상 act_b 다.
+ */
+static void buffers_for_op(
+    const adas_classifier_buffer_addresses_t* addresses,
+    unsigned op_index,
+    uintptr_t* source,
+    uintptr_t* destination
+) {
+    if (op_index == 0u) {
+        *source = addresses->roi;
+        *destination = addresses->act_a;
+        return;
+    }
+    if (op_index % 2u == 1u) {
+        *source = addresses->act_a;
+        *destination = addresses->act_b;
+    } else {
+        *source = addresses->act_b;
+        *destination = addresses->act_a;
+    }
+}
+
+static void weights_for_conv(
+    const adas_classifier_buffer_addresses_t* addresses,
+    unsigned conv_index,
+    uintptr_t* weights,
+    uintptr_t* bias
+) {
+    switch (conv_index) {
+    case 0u: *weights = addresses->w_conv0; *bias = addresses->b_conv0; break;
+    case 1u: *weights = addresses->w_conv1; *bias = addresses->b_conv1; break;
+    default: *weights = addresses->w_conv2; *bias = addresses->b_conv2; break;
+    }
+}
+
+static const adas_classifier_requant_t* requant_for_conv(
+    const adas_classifier_parameters_t* parameters,
+    unsigned conv_index
+) {
+    switch (conv_index) {
+    case 0u: return &parameters->rq_conv0;
+    case 1u: return &parameters->rq_conv1;
+    default: return &parameters->rq_conv2;
+    }
+}
+
 void adas_classifier_accelerator_init(
     adas_classifier_accelerator_t* accelerator
 ) {
-    /* 아직 어떤 MMIO 영역도 열지 않은 안전한 초기 상태로 만듭니다. */
     if (accelerator == NULL) {
         return;
     }
 
-    adas_pl_mmio_init(&accelerator->args_region);
-    adas_pl_mmio_init(&accelerator->exec_region);
+    adas_pl_mmio_init(&accelerator->conv_region);
+    adas_pl_mmio_init(&accelerator->conv0_region);
+    adas_pl_mmio_init(&accelerator->maxpool_region);
+    accelerator->addresses_valid = 0;
+    accelerator->parameters_valid = 0;
 }
 
 adas_classifier_status_t adas_classifier_accelerator_open(
     adas_classifier_accelerator_t* accelerator
 ) {
-    /* NULL이나 이미 열린 객체를 다시 여는 사용 오류를 막습니다. */
     if (accelerator == NULL
-        || region_is_open(&accelerator->args_region)
-        || region_is_open(&accelerator->exec_region)) {
+        || region_is_open(&accelerator->conv_region)
+        || region_is_open(&accelerator->conv0_region)
+        || region_is_open(&accelerator->maxpool_region)) {
         return ADAS_CLASSIFIER_INVALID_ARGUMENT;
     }
 
-    /* 첫 AXI-Lite 영역: DDR 입력/가중치/출력 주소 인자 레지스터입니다. */
+    /* 셋 중 하나라도 실패하면 앞서 연 것을 전부 되돌린다. */
     if (adas_pl_mmio_open(
-            &accelerator->args_region,
-            ADAS_CLASSIFIER_ARGS_BASE_ADDRESS,
-            ADAS_CLASSIFIER_REGISTER_SPAN
+            &accelerator->conv_region,
+            ADAS_EB_CONV_BASE_ADDRESS,
+            ADAS_EB_REGISTER_SPAN
         ) != ADAS_PL_MMIO_OK) {
         return ADAS_CLASSIFIER_MMIO_ERROR;
     }
-
-    /* 두 번째 AXI-Lite 영역: 시작/완료, requant, bias 레지스터입니다. */
     if (adas_pl_mmio_open(
-            &accelerator->exec_region,
-            ADAS_CLASSIFIER_EXEC_BASE_ADDRESS,
-            ADAS_CLASSIFIER_REGISTER_SPAN
+            &accelerator->conv0_region,
+            ADAS_EB_CONV0_BASE_ADDRESS,
+            ADAS_EB_REGISTER_SPAN
         ) != ADAS_PL_MMIO_OK) {
-        /* 두 번째 mmap 실패 시 먼저 연 첫 영역도 되돌립니다. */
-        adas_pl_mmio_close(&accelerator->args_region);
+        adas_pl_mmio_close(&accelerator->conv_region);
+        return ADAS_CLASSIFIER_MMIO_ERROR;
+    }
+    if (adas_pl_mmio_open(
+            &accelerator->maxpool_region,
+            ADAS_EB_MAXPOOL_BASE_ADDRESS,
+            ADAS_EB_REGISTER_SPAN
+        ) != ADAS_PL_MMIO_OK) {
+        adas_pl_mmio_close(&accelerator->conv0_region);
+        adas_pl_mmio_close(&accelerator->conv_region);
         return ADAS_CLASSIFIER_MMIO_ERROR;
     }
 
@@ -137,19 +213,21 @@ adas_classifier_status_t adas_classifier_accelerator_configure_buffers(
     adas_classifier_accelerator_t* accelerator,
     const adas_classifier_buffer_addresses_t* addresses
 ) {
-    /* 주소 레지스터 영역이 열린 뒤에만 설정할 수 있습니다. */
-    if (accelerator == NULL || addresses == NULL
-        || !region_is_open(&accelerator->args_region)) {
+    if (accelerator == NULL || addresses == NULL) {
         return ADAS_CLASSIFIER_INVALID_ARGUMENT;
     }
 
-    /* 모든 PL 접근 주소가 존재하고 최소 32비트 정렬인지 한 번에 검사합니다. */
+    /* 9개 주소가 모두 존재하고 최소 32비트 정렬인지 한 번에 검사한다. */
     const uintptr_t values[] = {
-        addresses->ifmap,
+        addresses->roi,
+        addresses->act_a,
+        addresses->act_b,
         addresses->w_conv0,
         addresses->w_conv1,
         addresses->w_conv2,
-        addresses->output
+        addresses->b_conv0,
+        addresses->b_conv1,
+        addresses->b_conv2
     };
     for (size_t i = 0u; i < sizeof(values) / sizeof(values[0]); ++i) {
         if (values[i] == 0u || values[i] % sizeof(uint32_t) != 0u) {
@@ -157,43 +235,13 @@ adas_classifier_status_t adas_classifier_accelerator_configure_buffers(
         }
     }
 
-    /*
-     * DDR에 데이터를 복사하는 부분이 아닙니다.
-     * PL이 DDR 어디를 읽고 쓸지 알려주는 물리 주소 숫자만 기록합니다.
-     */
-    if (write_address(
-            &accelerator->args_region,
-            ADAS_CLASSIFIER_ARGS_IFMAP_LOW,
-            ADAS_CLASSIFIER_ARGS_IFMAP_HIGH,
-            addresses->ifmap
-        ) != ADAS_CLASSIFIER_OK
-        || write_address(
-            &accelerator->args_region,
-            ADAS_CLASSIFIER_ARGS_W_CONV0_LOW,
-            ADAS_CLASSIFIER_ARGS_W_CONV0_HIGH,
-            addresses->w_conv0
-        ) != ADAS_CLASSIFIER_OK
-        || write_address(
-            &accelerator->args_region,
-            ADAS_CLASSIFIER_ARGS_W_CONV1_LOW,
-            ADAS_CLASSIFIER_ARGS_W_CONV1_HIGH,
-            addresses->w_conv1
-        ) != ADAS_CLASSIFIER_OK
-        || write_address(
-            &accelerator->args_region,
-            ADAS_CLASSIFIER_ARGS_W_CONV2_LOW,
-            ADAS_CLASSIFIER_ARGS_W_CONV2_HIGH,
-            addresses->w_conv2
-        ) != ADAS_CLASSIFIER_OK
-        || write_address(
-            &accelerator->args_region,
-            ADAS_CLASSIFIER_ARGS_OUTPUT_LOW,
-            ADAS_CLASSIFIER_ARGS_OUTPUT_HIGH,
-            addresses->output
-        ) != ADAS_CLASSIFIER_OK) {
-        return ADAS_CLASSIFIER_MMIO_ERROR;
+    /* act_a 와 act_b 가 같으면 op 이 자기가 읽는 버퍼를 덮어쓴다. */
+    if (addresses->act_a == addresses->act_b) {
+        return ADAS_CLASSIFIER_INVALID_ARGUMENT;
     }
 
+    accelerator->addresses = *addresses;
+    accelerator->addresses_valid = 1;
     return ADAS_CLASSIFIER_OK;
 }
 
@@ -201,130 +249,227 @@ adas_classifier_status_t adas_classifier_accelerator_load_parameters(
     adas_classifier_accelerator_t* accelerator,
     const adas_classifier_parameters_t* parameters
 ) {
-    /* 실행/파라미터 레지스터 영역이 열린 뒤에만 기록할 수 있습니다. */
-    if (accelerator == NULL || parameters == NULL
-        || !region_is_open(&accelerator->exec_region)) {
+    if (accelerator == NULL || parameters == NULL) {
         return ADAS_CLASSIFIER_INVALID_ARGUMENT;
     }
 
-    /* 세 Conv의 requant 값과 채널별 bias를 PL 레지스터에 적재합니다. */
-    if (write_requant(
-            &accelerator->exec_region,
-            ADAS_CLASSIFIER_EXEC_RQ_CONV0_LOW,
-            ADAS_CLASSIFIER_EXEC_RQ_CONV0_HIGH,
-            &parameters->rq_conv0
-        ) != ADAS_CLASSIFIER_OK
-        || write_requant(
-            &accelerator->exec_region,
-            ADAS_CLASSIFIER_EXEC_RQ_CONV1_LOW,
-            ADAS_CLASSIFIER_EXEC_RQ_CONV1_HIGH,
-            &parameters->rq_conv1
-        ) != ADAS_CLASSIFIER_OK
-        || write_requant(
-            &accelerator->exec_region,
-            ADAS_CLASSIFIER_EXEC_RQ_CONV2_LOW,
-            ADAS_CLASSIFIER_EXEC_RQ_CONV2_HIGH,
-            &parameters->rq_conv2
-        ) != ADAS_CLASSIFIER_OK
-        || write_biases(
-            &accelerator->exec_region,
-            ADAS_CLASSIFIER_EXEC_B_CONV0_BASE,
-            parameters->b_conv0,
-            ADAS_CLASSIFIER_B_CONV0_COUNT
-        ) != ADAS_CLASSIFIER_OK
-        || write_biases(
-            &accelerator->exec_region,
-            ADAS_CLASSIFIER_EXEC_B_CONV1_BASE,
-            parameters->b_conv1,
-            ADAS_CLASSIFIER_B_CONV1_COUNT
-        ) != ADAS_CLASSIFIER_OK
-        || write_biases(
-            &accelerator->exec_region,
-            ADAS_CLASSIFIER_EXEC_B_CONV2_BASE,
-            parameters->b_conv2,
-            ADAS_CLASSIFIER_B_CONV2_COUNT
-        ) != ADAS_CLASSIFIER_OK) {
+    /*
+     * multiplier 0 은 "아직 manifest 값을 안 넣었다"는 뜻이다. 그대로
+     * 실행하면 출력이 전부 0 이 되고, 그것은 배선 오류처럼 보인다.
+     */
+    const adas_classifier_requant_t* const requants[] = {
+        &parameters->rq_conv0, &parameters->rq_conv1, &parameters->rq_conv2
+    };
+    for (size_t i = 0u; i < ADAS_EB_NUM_CONVS; ++i) {
+        if (requants[i]->multiplier == 0 || requants[i]->shift > 63u) {
+            return ADAS_CLASSIFIER_INVALID_ARGUMENT;
+        }
+    }
+
+    accelerator->parameters = *parameters;
+    accelerator->parameters_valid = 1;
+    return ADAS_CLASSIFIER_OK;
+}
+
+/* conv0_engine: 미리 패딩된 입력, pad 포트 없음, 가중치는 OIHW. */
+static adas_classifier_status_t program_conv0(
+    adas_pl_mmio_region_t* region,
+    const struct adas_eb_op* op,
+    uintptr_t source,
+    uintptr_t destination,
+    uintptr_t weights,
+    uintptr_t bias,
+    const adas_classifier_requant_t* requant
+) {
+    if (write_address(region, ADAS_EB_CONV0_IFMAP_LO,
+                      ADAS_EB_CONV0_IFMAP_HI, source) != ADAS_CLASSIFIER_OK
+        || write_address(region, ADAS_EB_CONV0_WEIGHTS_LO,
+                         ADAS_EB_CONV0_WEIGHTS_HI, weights) != ADAS_CLASSIFIER_OK
+        || write_address(region, ADAS_EB_CONV0_BIAS_LO,
+                         ADAS_EB_CONV0_BIAS_HI, bias) != ADAS_CLASSIFIER_OK
+        || write_address(region, ADAS_EB_CONV0_OFMAP_LO,
+                         ADAS_EB_CONV0_OFMAP_HI, destination) != ADAS_CLASSIFIER_OK
+        || write_register(region, ADAS_EB_CONV0_IMG_H, op->img_h) != ADAS_CLASSIFIER_OK
+        || write_register(region, ADAS_EB_CONV0_IMG_W, op->img_w) != ADAS_CLASSIFIER_OK
+        || write_register(region, ADAS_EB_CONV0_REQUANT_MUL,
+                          (uint32_t)requant->multiplier) != ADAS_CLASSIFIER_OK
+        || write_register(region, ADAS_EB_CONV0_REQUANT_SHIFT,
+                          requant->shift) != ADAS_CLASSIFIER_OK
+        || write_register(region, ADAS_EB_CONV0_LEAKY_ENABLE,
+                          requant->leaky) != ADAS_CLASSIFIER_OK) {
         return ADAS_CLASSIFIER_MMIO_ERROR;
+    }
+    return ADAS_CLASSIFIER_OK;
+}
+
+/* conv_engine: conv1/conv2 공용. weights_hi 는 같은 버퍼의 두 번째 읽기 포트다. */
+static adas_classifier_status_t program_conv(
+    adas_pl_mmio_region_t* region,
+    const struct adas_eb_op* op,
+    uintptr_t source,
+    uintptr_t destination,
+    uintptr_t weights,
+    uintptr_t bias,
+    const adas_classifier_requant_t* requant
+) {
+    if (write_address(region, ADAS_EB_CONV_IFMAP_LO,
+                      ADAS_EB_CONV_IFMAP_HI, source) != ADAS_CLASSIFIER_OK
+        || write_address(region, ADAS_EB_CONV_WEIGHTS_LO,
+                         ADAS_EB_CONV_WEIGHTS_HI, weights) != ADAS_CLASSIFIER_OK
+        || write_address(region, ADAS_EB_CONV_WEIGHTS2_LO,
+                         ADAS_EB_CONV_WEIGHTS2_HI, weights) != ADAS_CLASSIFIER_OK
+        || write_address(region, ADAS_EB_CONV_BIAS_LO,
+                         ADAS_EB_CONV_BIAS_HI, bias) != ADAS_CLASSIFIER_OK
+        || write_address(region, ADAS_EB_CONV_OFMAP_LO,
+                         ADAS_EB_CONV_OFMAP_HI, destination) != ADAS_CLASSIFIER_OK
+        || write_register(region, ADAS_EB_CONV_IMG_H, op->img_h) != ADAS_CLASSIFIER_OK
+        || write_register(region, ADAS_EB_CONV_IMG_W, op->img_w) != ADAS_CLASSIFIER_OK
+        || write_register(region, ADAS_EB_CONV_IN_CH, op->in_ch) != ADAS_CLASSIFIER_OK
+        || write_register(region, ADAS_EB_CONV_OUT_CH, op->out_ch) != ADAS_CLASSIFIER_OK
+        || write_register(region, ADAS_EB_CONV_K, op->k) != ADAS_CLASSIFIER_OK
+        || write_register(region, ADAS_EB_CONV_STRIDE, op->stride) != ADAS_CLASSIFIER_OK
+        || write_register(region, ADAS_EB_CONV_PAD, op->pad) != ADAS_CLASSIFIER_OK
+        || write_register(region, ADAS_EB_CONV_REQUANT_MUL,
+                          (uint32_t)requant->multiplier) != ADAS_CLASSIFIER_OK
+        || write_register(region, ADAS_EB_CONV_REQUANT_SHIFT,
+                          requant->shift) != ADAS_CLASSIFIER_OK
+        || write_register(region, ADAS_EB_CONV_LEAKY_ENABLE,
+                          requant->leaky) != ADAS_CLASSIFIER_OK) {
+        return ADAS_CLASSIFIER_MMIO_ERROR;
+    }
+    return ADAS_CLASSIFIER_OK;
+}
+
+static adas_classifier_status_t program_maxpool(
+    adas_pl_mmio_region_t* region,
+    const struct adas_eb_op* op,
+    uintptr_t source,
+    uintptr_t destination
+) {
+    if (write_address(region, ADAS_EB_MAXPOOL_IFMAP_LO,
+                      ADAS_EB_MAXPOOL_IFMAP_HI, source) != ADAS_CLASSIFIER_OK
+        || write_address(region, ADAS_EB_MAXPOOL_OFMAP_LO,
+                         ADAS_EB_MAXPOOL_OFMAP_HI, destination) != ADAS_CLASSIFIER_OK
+        || write_register(region, ADAS_EB_MAXPOOL_IMG_H, op->img_h) != ADAS_CLASSIFIER_OK
+        || write_register(region, ADAS_EB_MAXPOOL_IMG_W, op->img_w) != ADAS_CLASSIFIER_OK
+        || write_register(region, ADAS_EB_MAXPOOL_CH, op->in_ch) != ADAS_CLASSIFIER_OK
+        || write_register(region, ADAS_EB_MAXPOOL_STRIDE, op->stride) != ADAS_CLASSIFIER_OK
+        || write_register(region, ADAS_EB_MAXPOOL_PAD_RIGHT, 0u) != ADAS_CLASSIFIER_OK
+        || write_register(region, ADAS_EB_MAXPOOL_PAD_BOTTOM, 0u) != ADAS_CLASSIFIER_OK) {
+        return ADAS_CLASSIFIER_MMIO_ERROR;
+    }
+    return ADAS_CLASSIFIER_OK;
+}
+
+adas_classifier_status_t adas_classifier_accelerator_op_buffers(
+    const adas_classifier_buffer_addresses_t* addresses,
+    unsigned op_index,
+    uintptr_t* source,
+    uintptr_t* destination
+) {
+    if (addresses == NULL || source == NULL || destination == NULL
+        || op_index >= ADAS_EB_NUM_OPS) {
+        return ADAS_CLASSIFIER_INVALID_ARGUMENT;
+    }
+    buffers_for_op(addresses, op_index, source, destination);
+    return ADAS_CLASSIFIER_OK;
+}
+
+adas_classifier_status_t adas_classifier_accelerator_run_op(
+    adas_classifier_accelerator_t* accelerator,
+    unsigned op_index,
+    uint32_t timeout_ms
+) {
+    static const struct adas_eb_op ops[] = ADAS_EB_OP_TABLE_INITIALIZER;
+
+    if (accelerator == NULL || op_index >= ADAS_EB_NUM_OPS || timeout_ms == 0u) {
+        return ADAS_CLASSIFIER_INVALID_ARGUMENT;
+    }
+    if (!accelerator->addresses_valid || !accelerator->parameters_valid) {
+        return ADAS_CLASSIFIER_NOT_CONFIGURED;
+    }
+
+    const struct adas_eb_op* const op = &ops[op_index];
+    adas_pl_mmio_region_t* const region = region_for_kind(accelerator, op->kind);
+    if (region == NULL || !region_is_open(region)) {
+        return ADAS_CLASSIFIER_INVALID_ARGUMENT;
+    }
+
+    uintptr_t source = 0u;
+    uintptr_t destination = 0u;
+    buffers_for_op(&accelerator->addresses, op_index, &source, &destination);
+
+    adas_classifier_status_t status;
+    if (op->kind == ADAS_EB_OP_MAXPOOL) {
+        status = program_maxpool(region, op, source, destination);
+    } else {
+        uintptr_t weights = 0u;
+        uintptr_t bias = 0u;
+        weights_for_conv(&accelerator->addresses, op->conv_index,
+                         &weights, &bias);
+        const adas_classifier_requant_t* const requant =
+            requant_for_conv(&accelerator->parameters, op->conv_index);
+        status = (op->kind == ADAS_EB_OP_CONV0)
+            ? program_conv0(region, op, source, destination, weights, bias, requant)
+            : program_conv(region, op, source, destination, weights, bias, requant);
+    }
+    if (status != ADAS_CLASSIFIER_OK) {
+        return status;
+    }
+
+    /*
+     * 시작 전에 idle 을 확인한다. 앞 op 이 아직 도는 중이면 ap_start 가
+     * 무시되고, 그러면 이번 op 의 출력 버퍼에 옛 내용이 남는다.
+     */
+    status = wait_for_bit(region, ADAS_EB_AP_IDLE_MASK, timeout_ms);
+    if (status != ADAS_CLASSIFIER_OK) {
+        return status;
+    }
+
+    status = write_register(region, ADAS_EB_REG_CTRL, ADAS_EB_AP_START_MASK);
+    if (status != ADAS_CLASSIFIER_OK) {
+        return status;
+    }
+
+    return wait_for_bit(region, ADAS_EB_AP_DONE_MASK, timeout_ms);
+}
+
+adas_classifier_status_t adas_classifier_accelerator_run(
+    adas_classifier_accelerator_t* accelerator,
+    uint32_t timeout_ms,
+    unsigned* failed_op
+) {
+    if (failed_op != NULL) {
+        *failed_op = ADAS_EB_NUM_OPS;
+    }
+    if (accelerator == NULL || timeout_ms == 0u) {
+        return ADAS_CLASSIFIER_INVALID_ARGUMENT;
+    }
+
+    for (unsigned i = 0u; i < ADAS_EB_NUM_OPS; ++i) {
+        const adas_classifier_status_t status =
+            adas_classifier_accelerator_run_op(accelerator, i, timeout_ms);
+        if (status != ADAS_CLASSIFIER_OK) {
+            if (failed_op != NULL) {
+                *failed_op = i;
+            }
+            return status;
+        }
     }
 
     return ADAS_CLASSIFIER_OK;
 }
 
-adas_classifier_status_t adas_classifier_accelerator_start(
-    adas_classifier_accelerator_t* accelerator
-) {
-    /* ap_start 비트 0을 1로 써서 PL 계산을 시작시킵니다. */
-    if (accelerator == NULL || !region_is_open(&accelerator->exec_region)) {
-        return ADAS_CLASSIFIER_INVALID_ARGUMENT;
-    }
-
-    return write_register(
-        &accelerator->exec_region,
-        ADAS_CLASSIFIER_EXEC_AP_CTRL,
-        ADAS_CLASSIFIER_AP_START_MASK
-    );
-}
-
-adas_classifier_status_t adas_classifier_accelerator_wait_done(
-    adas_classifier_accelerator_t* accelerator,
-    uint32_t timeout_ms
-) {
-    /* 무한 대기를 피하려고 0이 아닌 제한 시간을 반드시 받습니다. */
-    if (accelerator == NULL || timeout_ms == 0u
-        || !region_is_open(&accelerator->exec_region)) {
-        return ADAS_CLASSIFIER_INVALID_ARGUMENT;
-    }
-
-    /* 시스템 시간이 바뀌어도 영향 없는 monotonic clock으로 시작 시각을 잡습니다. */
-    struct timespec start;
-    if (clock_gettime(CLOCK_MONOTONIC, &start) != 0) {
-        return ADAS_CLASSIFIER_MMIO_ERROR;
-    }
-
-    /* CPU를 계속 점유하지 않도록 완료 확인 사이에 100 us 쉽니다. */
-    const struct timespec polling_delay = {
-        .tv_sec = 0,
-        .tv_nsec = 100000
-    };
-
-    /* 인터럽트 대신 ap_done 비트를 반복해서 읽는 polling 방식입니다. */
-    for (;;) {
-        uint32_t control = 0u;
-        if (adas_pl_mmio_read32(
-                &accelerator->exec_region,
-                ADAS_CLASSIFIER_EXEC_AP_CTRL,
-                &control
-            ) != ADAS_PL_MMIO_OK) {
-            return ADAS_CLASSIFIER_MMIO_ERROR;
-        }
-
-        /* PL이 ap_done을 올렸으면 한 번의 추론이 끝난 것입니다. */
-        if ((control & ADAS_CLASSIFIER_AP_DONE_MASK) != 0u) {
-            return ADAS_CLASSIFIER_OK;
-        }
-
-        struct timespec current;
-        if (clock_gettime(CLOCK_MONOTONIC, &current) != 0) {
-            return ADAS_CLASSIFIER_MMIO_ERROR;
-        }
-        /* 제한 시간 안에 완료되지 않으면 상위 코드가 복구할 수 있게 반환합니다. */
-        if (elapsed_milliseconds(&start, &current) >= timeout_ms) {
-            return ADAS_CLASSIFIER_TIMEOUT;
-        }
-
-        (void)nanosleep(&polling_delay, NULL);
-    }
-}
-
 void adas_classifier_accelerator_close(
     adas_classifier_accelerator_t* accelerator
 ) {
-    /* NULL close는 아무 일도 하지 않게 하여 정리 코드를 단순하게 합니다. */
     if (accelerator == NULL) {
         return;
     }
 
-    /* mmap을 해제하고 /dev/mem fd를 닫습니다. close 내부에서 다시 초기화됩니다. */
-    adas_pl_mmio_close(&accelerator->exec_region);
-    adas_pl_mmio_close(&accelerator->args_region);
+    adas_pl_mmio_close(&accelerator->maxpool_region);
+    adas_pl_mmio_close(&accelerator->conv0_region);
+    adas_pl_mmio_close(&accelerator->conv_region);
+    accelerator->addresses_valid = 0;
+    accelerator->parameters_valid = 0;
 }

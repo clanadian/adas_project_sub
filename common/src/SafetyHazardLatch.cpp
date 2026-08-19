@@ -11,6 +11,7 @@ void HazardLatch::reset() {
     latched_class_  = -1;
     hold_until_ms_  = 0;
     absent_frames_  = 0;
+    absent_since_ms_ = 0;
     last_state_     = State::Clear;
 }
 
@@ -24,8 +25,9 @@ State HazardLatch::update(const DetectionRecord* items, size_t count,
             last_state_ = State::Stop;
             return last_state_;
         }
-        phase_         = Phase::Released;
-        absent_frames_ = 0;
+        phase_          = Phase::Released;
+        absent_frames_  = 0;
+        absent_since_ms_ = now_ms;
     }
 
     //2. Released 중이면 latched class가 이번 프레임에도 보이는지로
@@ -33,10 +35,20 @@ State HazardLatch::update(const DetectionRecord* items, size_t count,
     //   돌아가 완전히 새 이벤트를 받을 수 있게 한다.
     if (phase_ == Phase::Released) {
         if (classPresent(items, count, latched_class_, config)) {
-            absent_frames_ = 0;
-        } else if (++absent_frames_ >= config_.release_frames) {
-            phase_         = Phase::Idle;
-            latched_class_ = -1;
+            absent_frames_  = 0;
+            absent_since_ms_ = now_ms;
+        } else {
+            ++absent_frames_;
+            const bool frames_ok = absent_frames_ >= config_.release_frames;
+            const bool time_ok =
+                config_.release_ms == 0 ||
+                (now_ms >= absent_since_ms_ &&
+                 now_ms - absent_since_ms_ >= config_.release_ms);
+            //프레임 수와 경과 시간을 **둘 다** 만족해야 푼다.
+            if (frames_ok && time_ok) {
+                phase_         = Phase::Idle;
+                latched_class_ = -1;
+            }
         }
     }
 

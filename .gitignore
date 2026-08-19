@@ -2,28 +2,25 @@
 *_prj/
 *.jou
 *.log
+*.log.old
 # EB 핸드오프의 cosim/csynth 로그는 성능 수치의 근거라 남긴다
 !arty/pl_eb/logs/*.log
 .Xil/
 
-# 빌드 산출물과 대용량 바이너리
-*.xsa
-*.bit
-*.bit.bin
-*.elf
-*.aarch64
-
 # 팀 전달용 원본 압축 파일. 필요한 소스는 저장소에 별도로 반영한다.
 docs/*.zip
 
-# PetaLinux에서 재생성되는 SD 배포 이미지
-arty/deploy/
+# PetaLinux가 재생성하는 SD 배포용 바이너리만 제외한다 - burn_sd.sh 등
+# 스크립트는 arty/deploy/ 바로 아래에 있으므로 이 디렉터리 자체는 추적한다.
+arty/deploy/*_sd_boot/
+arty/deploy/rootfs.ext4
 
 # 카메라/ROI 수동 검증 산출물
 jetson/artifacts/
 
-# CMake / C++ build outputs
-build/
+# CMake / C++ build outputs. build_arm/, build_verify/ 처럼 build 뒤에
+# 접미사가 붙는 크로스컴파일용 디렉터리도 전부 잡는다.
+build*/
 CMakeCache.txt
 CMakeFiles/
 cmake_install.cmake

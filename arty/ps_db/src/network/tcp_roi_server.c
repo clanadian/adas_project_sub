@@ -2,6 +2,8 @@
 
 #include <arpa/inet.h>
 #include <errno.h>
+#include <netinet/in.h>
+#include <netinet/tcp.h>
 #include <stddef.h>
 #include <string.h>
 #include <sys/socket.h>
@@ -168,6 +170,28 @@ adas_tcp_roi_status_t adas_tcp_roi_server_accept(
     }
 
     server->client_fd = client_fd;
+
+    return ADAS_TCP_ROI_OK;
+}
+
+adas_tcp_roi_status_t adas_tcp_roi_server_set_no_delay(
+    adas_tcp_roi_server_t* server,
+    int enable
+) {
+    if (server == NULL || server->client_fd < 0) {
+        return ADAS_TCP_ROI_INVALID_ARGUMENT;
+    }
+
+    const int value = enable != 0 ? 1 : 0;
+    if (setsockopt(
+            server->client_fd,
+            IPPROTO_TCP,
+            TCP_NODELAY,
+            &value,
+            sizeof(value)
+    ) < 0) {
+        return ADAS_TCP_ROI_SYSTEM_ERROR;
+    }
 
     return ADAS_TCP_ROI_OK;
 }

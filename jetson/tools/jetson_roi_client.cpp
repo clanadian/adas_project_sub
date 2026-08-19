@@ -1,4 +1,8 @@
 #include "capture/V4L2Capture.hpp"
+#include "control/SafetyDecider.hpp"
+#include "control/SafetyTransmitter.hpp"
+#include "control/UartPort.hpp"
+#include "metrics/LatencyStats.hpp"
 #include "network/TcpRoiClient.hpp"
 #include "preprocess/RoiPreprocessor.hpp"
 #include "roi/RoiCropper.hpp"
@@ -6,13 +10,18 @@
 #include "stream/MjpegStreamServer.hpp"
 
 #include <atomic>
+#include <chrono>
 #include <csignal>
 #include <cstdint>
+#include <cstdio>
 #include <cstdlib>
+#include <fstream>
 #include <iostream>
 #include <limits>
+#include <map>
 #include <memory>
 #include <string>
+#include <thread>
 #include <vector>
 
 namespace {
@@ -36,6 +45,238 @@ bool parse_port(const char* text, std::uint16_t& port) {
     }
 }
 
+/*
+ * ---------------------------------------------------------------------------
+ * 보고서용 측정
+ * ---------------------------------------------------------------------------
+ *
+ * "FPS"가 무엇인지부터 고정한다. ROI 분류 구조에서는 서로 다른 세 숫자가
+ * 전부 FPS라고 불릴 수 있어서, 하나만 적으면 읽는 쪽이 다른 것으로 이해한다.
+ *
+ *   frame FPS   완료된 프레임 / 초. 화면 결과가 갱신되는 속도이며, 사람이
+ *               "자연스럽다"고 느끼는 값은 이것이다.
+ *   ROI/s       분류한 ROI / 초. 보드 처리량이고 프레임당 ROI 개수와 무관하다.
+ *   처리분 FPS  카메라 대기를 뺀 프레임 시간의 역수. 카메라가 더 빨랐다면
+ *               낼 수 있었을 상한이며, 카메라 병목과 처리 병목을 가른다.
+ *
+ * 루프가 완전 순차이므로 다음이 성립한다.
+ *
+ *   프레임 시간 = 캡처(대기 포함) + proposal + Σ(crop + TCP 왕복) + publish
+ *
+ * 그래서 프레임당 ROI 개수(N)별로도 나눠 보고한다 - N이 섞인 평균 FPS 하나는
+ * 재현도 비교도 안 되기 때문이다.
+ *
+ * 환경변수:
+ *   ADAS_MEASURE_WARMUP   : 통계에서 제외할 앞쪽 프레임 수 (기본 10)
+ *                           TensorRT 첫 추론과 카메라 안정화 구간을 버린다.
+ *   ADAS_MEASURE_QUIET=1  : ROI마다 찍던 결과 줄을 끈다. 콘솔 출력이 측정을
+ *                           왜곡하므로 측정 실행에서는 켜는 것을 권한다.
+ *   ADAS_MEASURE_PROGRESS : 몇 프레임마다 진행 줄을 찍을지 (기본 100, 0=끔)
+ *   ADAS_MEASURE_CSV      : ROI 한 건당 한 행을 남길 CSV 경로. 히스토그램과
+ *                           백분위수는 이 파일로 오프라인 계산한다.
+ *   ADAS_TCP_NODELAY=1    : 분류 socket의 Nagle을 끈다.
+ */
+
+using Clock = std::chrono::steady_clock;
+
+std::int64_t elapsed_us(Clock::time_point start, Clock::time_point end) {
+    return std::chrono::duration_cast<std::chrono::microseconds>(end - start)
+        .count();
+}
+
+unsigned long env_ulong(const char* name, unsigned long fallback) {
+    const char* const text = std::getenv(name);
+    if (text == nullptr || *text == '\0') {
+        return fallback;
+    }
+    try {
+        return std::stoul(text);
+    } catch (...) {
+        return fallback;
+    }
+}
+
+bool env_flag(const char* name) {
+    return env_ulong(name, 0ul) != 0ul;
+}
+
+/*
+ * ---------------------------------------------------------------------------
+ * 제어 계층 (TurtleBot 안전 상태 송신)
+ * ---------------------------------------------------------------------------
+ *
+ * 설계는 docs/JETSON_CONTROL_DESIGN.md 다. 요점만:
+ *
+ * 분류 루프는 프레임당 ROI 개수에 따라 주기가 흔들리고 TCP 왕복에 막힌다.
+ * 그래서 송신은 20 ms 고정 스레드로 분리하고, 이 루프는 "최신 판단"만
+ * 갱신한다. 판단이 아예 멈춘 것은 송신 스레드의 watchdog 이 잡는다 -
+ * 멈춘 쪽은 스스로 그 사실을 보고할 수 없기 때문이다.
+ *
+ *   ADAS_UART_PORT   : 안전 상태를 내보낼 포트. 없으면 제어 계층을 켜지 않고
+ *                      기존과 동일하게 동작한다 (/dev/ttyTHS1 또는 /dev/ttyUSB0)
+ *   ADAS_UART_BAUD   : 기본 115200
+ *   ADAS_CONTROL_ZONE_FILTER=1 : 경로 밖 후보를 분류 요청 전에 거른다.
+ *                      결과는 바뀌지 않고(경로 밖은 어차피 Clear) 왕복만 준다.
+ *                      기본은 꺼 둔다 - 켠 조건과 끈 조건을 각각 재고 정한다.
+ */
+
+/* 이 프로젝트의 클래스 배치. KR260 과 한 칸씩 다르다 (background 가 앞에 붙었다). */
+safety::ClassMap projectClassMap() {
+    safety::ClassMap classes;
+    classes.background       = 0;
+    classes.car              = 1;
+    classes.person           = 2;
+    classes.sign_warning     = 3;
+    classes.sign_prohibition = 4;
+    classes.sign_mandatory   = 5;
+    return classes;
+}
+
+/*
+ * 경로 밖(zone_x 밖) 후보는 어떤 class 여도 판단 결과가 Clear 다. 분류하지
+ * 않아도 결과가 같으므로 왕복만 줄어든다 - 동작 보존 최적화다.
+ */
+bool insidePathZone(
+    const adas::roi::RoiCandidate& candidate,
+    const adas::control::AdapterConfig& adapter,
+    const safety::JudgeConfig& judge
+) {
+    if (adapter.frame_width <= 0) {
+        return true;
+    }
+    const auto& box = candidate.object_bbox;
+    const float center_x =
+        (box.x + box.width * 0.5F) / static_cast<float>(adapter.frame_width);
+    return center_x >= judge.zone_x_min && center_x <= judge.zone_x_max;
+}
+
+/*
+ * 응답을 못 받은 ROI 를 로그·오버레이에서 구분하기 위한 표식.
+ * 프로토콜의 status 값(0..4)과 겹치지 않는 값을 쓴다.
+ */
+constexpr std::uint32_t kStatusNoReply = 0xffffffffu;
+
+/* 연속 분류 실패가 이만큼이면 링크 장애로 본다. */
+constexpr std::uint32_t kLinkFailureThreshold = 3u;
+
+struct RoiRecord {
+    int roi_index{0};
+    std::int64_t crop_us{0};
+    std::int64_t rtt_us{0};
+    std::uint32_t status{0};
+    std::uint32_t class_id{0};
+    std::uint32_t confidence_ppm{0};
+};
+
+struct Metrics {
+    adas::metrics::LatencyStats capture;
+    adas::metrics::LatencyStats propose;
+    adas::metrics::LatencyStats crop;
+    adas::metrics::LatencyStats rtt;
+    adas::metrics::LatencyStats publish;
+    adas::metrics::LatencyStats frame;
+    adas::metrics::LatencyStats work;  // 프레임 시간에서 카메라 대기를 뺀 값
+
+    // ROI 개수(N)별 프레임 시간. N이 섞인 평균 FPS는 비교가 안 된다.
+    std::map<std::size_t, adas::metrics::LatencyStats> frame_by_roi_count;
+    std::map<std::uint32_t, std::uint64_t> status_counts;
+
+    std::size_t frames{0};
+    std::size_t rois{0};
+    std::int64_t wall_us{0};
+};
+
+void print_stat_row(
+    const char* name,
+    adas::metrics::LatencyStats& stat
+) {
+    if (stat.empty()) {
+        std::printf("  %-32s %6s\n", name, "-");
+        return;
+    }
+    std::printf(
+        "  %-32s %6zu  %9.3f %9.3f %9.3f %9.3f\n",
+        name,
+        stat.count(),
+        stat.percentileMs(0.5),
+        stat.meanMs(),
+        stat.percentileMs(0.95),
+        stat.maxMs()
+    );
+}
+
+void print_summary(Metrics& metrics, unsigned long warmup) {
+    std::printf("\n=== Jetson 파이프라인 측정 요약 ===\n");
+
+    if (metrics.frames == 0) {
+        std::printf("  측정된 프레임 없음 (warmup=%lu 보다 짧게 돌았다)\n\n",
+                    warmup);
+        return;
+    }
+
+    const double wall_s = static_cast<double>(metrics.wall_us) / 1000000.0;
+    std::printf("  측정 구간      %.2f s  (앞 %lu 프레임 제외)\n",
+                wall_s, warmup);
+    std::printf("  완료 프레임    %zu", metrics.frames);
+    if (wall_s > 0.0) {
+        std::printf("   ->  %.2f FPS   (결과 갱신 속도)",
+                    static_cast<double>(metrics.frames) / wall_s);
+    }
+    std::printf("\n");
+    std::printf("  분류한 ROI     %zu", metrics.rois);
+    if (wall_s > 0.0) {
+        std::printf("   ->  %.2f ROI/s",
+                    static_cast<double>(metrics.rois) / wall_s);
+    }
+    std::printf("\n");
+    std::printf("  프레임당 ROI   평균 %.2f\n",
+                static_cast<double>(metrics.rois)
+                    / static_cast<double>(metrics.frames));
+
+    std::printf("  응답 상태      ");
+    for (const auto& entry : metrics.status_counts) {
+        std::printf("status=%u:%llu  ",
+                    entry.first,
+                    static_cast<unsigned long long>(entry.second));
+    }
+    std::printf("\n");
+
+    // 라벨을 ASCII로 두는 것은 취향이 아니다 - printf의 폭 지정은 바이트를
+    // 세므로 한글 라벨을 섞으면 표가 어긋난다. 각 구간의 설명은
+    // docs/FPS_MEASUREMENT_GUIDE.md 에 있다.
+    std::printf("\n  stage latency (ms)                    n    median"
+                "      mean       p95       max\n");
+    print_stat_row("capture (incl. camera wait)", metrics.capture);
+    print_stat_row("proposal inference", metrics.propose);
+    print_stat_row("crop+prepare (per ROI)", metrics.crop);
+    print_stat_row("TCP round-trip (per ROI)", metrics.rtt);
+    print_stat_row("MJPEG publish", metrics.publish);
+    print_stat_row("frame total", metrics.frame);
+    print_stat_row("frame work (excl. camera wait)", metrics.work);
+
+    if (!metrics.work.empty()) {
+        const double median_work = metrics.work.percentileMs(0.5);
+        if (median_work > 0.0) {
+            std::printf(
+                "%42s->  %.2f FPS  (카메라가 더 빨랐다면 낼 수 있는 상한)\n",
+                "", 1000.0 / median_work);
+        }
+    }
+
+    std::printf("\n  ROI 개수별 프레임 시간\n");
+    for (auto& entry : metrics.frame_by_roi_count) {
+        const double median = entry.second.percentileMs(0.5);
+        std::printf("    N=%-3zu n=%-6zu median %8.3f ms",
+                    entry.first, entry.second.count(), median);
+        if (median > 0.0) {
+            std::printf("  ->  %6.2f FPS", 1000.0 / median);
+        }
+        std::printf("\n");
+    }
+    std::printf("===================================\n\n");
+    std::fflush(stdout);
+}
+
 }  // namespace
 
 int main(int argc, char** argv) {
@@ -54,6 +295,65 @@ int main(int argc, char** argv) {
         return EXIT_FAILURE;
     }
     const bool full_frame_mode = std::string(argv[4]) == "--full-frame";
+
+    const unsigned long warmup_frames = env_ulong("ADAS_MEASURE_WARMUP", 10ul);
+    const unsigned long progress_every =
+        env_ulong("ADAS_MEASURE_PROGRESS", 100ul);
+    const bool quiet = env_flag("ADAS_MEASURE_QUIET");
+    const bool no_delay = env_flag("ADAS_TCP_NODELAY");
+    const char* const csv_path = std::getenv("ADAS_MEASURE_CSV");
+
+    std::ofstream csv;
+    if (csv_path != nullptr && *csv_path != '\0') {
+        csv.open(csv_path);
+        if (!csv.is_open()) {
+            // 측정 파일을 못 여는 것으로 파이프라인을 멈추지는 않는다.
+            // 다만 조용히 넘어가지도 않는다 - 없는 줄 모르고 측정하면
+            // 그 실행은 통째로 버려진다.
+            std::cerr << "warning: failed to open ADAS_MEASURE_CSV: "
+                      << csv_path << ", continuing without CSV\n";
+        } else {
+            csv << "frame_id,roi_index,roi_count,capture_us,propose_us,"
+                   "crop_us,rtt_us,publish_us,frame_us,status,class_id,"
+                   "confidence_ppm\n";
+        }
+    }
+
+    /* --- 제어 계층 --------------------------------------------------- */
+    const char* const uart_path = std::getenv("ADAS_UART_PORT");
+    const unsigned uart_baud =
+        static_cast<unsigned>(env_ulong("ADAS_UART_BAUD", 115200ul));
+    const bool zone_filter = env_flag("ADAS_CONTROL_ZONE_FILTER");
+
+    adas::control::PosixUartPort uart;
+    adas::control::SteadySafetyClock safety_clock;
+    std::unique_ptr<adas::control::SafetyTransmitter> transmitter;
+    std::atomic_bool transmitter_stop{false};
+    std::thread transmitter_thread;
+
+    adas::control::SafetyDecider::Config decider_config;
+    decider_config.judge.classes = projectClassMap();
+    decider_config.latch.release_ms = 200u;
+    decider_config.latch.release_frames = 3u;
+    adas::control::SafetyDecider decider(decider_config);
+
+    if (uart_path != nullptr && *uart_path != '\0') {
+        if (!uart.open(uart_path, uart_baud)) {
+            /*
+             * 제어를 켜라고 했는데 못 켰다. 조용히 분류만 돌면 로봇이
+             * 제어 없이 움직이는 상태가 되므로 여기서 멈춘다.
+             */
+            std::cerr << "failed to open UART: " << uart_path << '\n';
+            return EXIT_FAILURE;
+        }
+        transmitter = std::make_unique<adas::control::SafetyTransmitter>(
+            uart, safety_clock, adas::control::SafetyTransmitter::Config{});
+        transmitter_thread = std::thread([&transmitter, &transmitter_stop]() {
+            transmitter->run(transmitter_stop);
+        });
+        std::cout << "safety uart: " << uart_path << " @" << uart_baud
+                  << ", zone-filter=" << (zone_filter ? "on" : "off") << '\n';
+    }
 
     std::unique_ptr<adas::stream::MjpegStreamServer> mjpeg_server;
     if (argc == 6) {
@@ -92,6 +392,17 @@ int main(int argc, char** argv) {
         std::cerr << "failed to connect to PS server\n";
         return EXIT_FAILURE;
     }
+    if (no_delay
+        && client.setNoDelay(true) != adas::network::TcpClientStatus::Ok) {
+        // 이 실행의 측정값이 "NODELAY 켠 조건"이라는 전제가 깨지므로
+        // 반드시 눈에 보여야 한다.
+        std::cerr << "warning: failed to set TCP_NODELAY on classify socket\n";
+    }
+
+    std::cout << "measurement: warmup=" << warmup_frames
+              << " quiet=" << (quiet ? "on" : "off")
+              << " csv=" << (csv.is_open() ? csv_path : "(off)")
+              << " tcp_nodelay=" << (no_delay ? "on" : "off") << '\n';
 
     adas::roi::ProposerConfig proposer_config;
     if (!full_frame_mode) {
@@ -102,7 +413,22 @@ int main(int argc, char** argv) {
     const adas::preprocess::RoiPreprocessor preprocessor;
     std::uint32_t frame_id = 0u;
 
+    Metrics metrics;
+    std::vector<RoiRecord> frame_records;
+    std::vector<adas::control::RoiObservation> observations;
+    std::uint32_t consecutive_classify_failures = 0u;
+    Clock::time_point measure_start;
+    Clock::time_point measure_end;
+    bool measuring = false;
+    /*
+     * 분류 실패로 프로세스를 끝내지 않게 되면서, 비정상 종료로 볼 것은
+     * 카메라가 멈춘 경우만 남았다.
+     */
+    bool capture_failed = false;
+
     while (!stop_requested.load()) {
+        const Clock::time_point t_frame_begin = Clock::now();
+
         cv::Mat frame;
         const V4L2Capture::Result capture_status =
             capture.captureFrame(frame, 1000);
@@ -110,9 +436,16 @@ int main(int argc, char** argv) {
             continue;
         }
         if (capture_status != V4L2Capture::Result::Ok) {
+            /* 카메라가 죽으면 판단 근거가 없다. 나가기 전에 Stop 을 남긴다. */
             std::cerr << "camera capture stopped or failed\n";
+            capture_failed = true;
+            decider.forceStop(safety_clock.nowMs());
+            if (transmitter) {
+                transmitter->publish(decider.state(), safety_clock.nowMs());
+            }
             break;
         }
+        const Clock::time_point t_capture = Clock::now();
 
         std::vector<adas::roi::RoiCandidate> candidates;
         if (full_frame_mode) {
@@ -127,14 +460,42 @@ int main(int argc, char** argv) {
         } else {
             candidates = proposer.propose(frame, frame_id);
         }
+        if (zone_filter) {
+            /*
+             * 경로 밖은 어떤 class 여도 Clear 다. 분류하지 않아도 판단이
+             * 같으므로 왕복만 줄어든다.
+             */
+            std::vector<adas::roi::RoiCandidate> inside;
+            inside.reserve(candidates.size());
+            for (const auto& candidate : candidates) {
+                if (insidePathZone(candidate, decider.config().adapter,
+                                   decider.config().judge)) {
+                    inside.push_back(candidate);
+                }
+            }
+            candidates.swap(inside);
+        }
+        const Clock::time_point t_propose = Clock::now();
+
+        // 앞쪽 몇 프레임은 TensorRT 첫 추론과 카메라 안정화 때문에
+        // 정상 상태가 아니다. 측정 창은 여기서 시작한다.
+        const bool counted = frame_id >= warmup_frames;
+        if (counted && !measuring) {
+            measuring = true;
+            measure_start = t_frame_begin;
+        }
 
         // 이번 프레임에서 나온 ROI 분류 결과. MJPEG 서버로 넘겨
         // 화면에 겹쳐 그릴 때만 쓴다 - 분류 루프 자체의 동작에는
         // 영향이 없다.
         std::vector<adas::stream::RoiOverlay> overlays;
         overlays.reserve(candidates.size());
+        frame_records.clear();
+        observations.clear();
 
+        int roi_index = 0;
         for (const auto& candidate : candidates) {
+            const Clock::time_point t_roi_begin = Clock::now();
             const auto cropped = cropper.crop(frame, candidate);
             if (!cropped) {
                 continue;
@@ -143,41 +504,185 @@ int main(int argc, char** argv) {
             if (!prepared) {
                 continue;
             }
+            const Clock::time_point t_crop = Clock::now();
 
             adas::network::ClassificationResult result;
-            if (client.classify(*prepared, result)
-                != adas::network::TcpClientStatus::Ok) {
-                std::cerr << "classification request failed\n";
-                return EXIT_FAILURE;
+            const adas::network::TcpClientStatus classify_status =
+                client.classify(*prepared, result);
+            const Clock::time_point t_rtt = Clock::now();
+
+            /*
+             * 분류 실패로 파이프라인을 끝내지 않는다. proposal 은 이미
+             * "물체가 있다"고 말했으므로, class 를 못 얻은 것은 정보 부족이지
+             * 안전 근거가 아니다 - 판단 계층이 Unclassified 로 받아 기하만으로
+             * 본다. 연속 실패는 링크 장애로 따로 처리한다.
+             */
+            const bool classified =
+                classify_status == adas::network::TcpClientStatus::Ok;
+            if (classified) {
+                consecutive_classify_failures = 0u;
+            } else {
+                ++consecutive_classify_failures;
+                if (!quiet) {
+                    std::cerr << "classification request failed ("
+                              << consecutive_classify_failures << " in a row)\n";
+                }
+            }
+            observations.push_back({candidate, result, classified});
+
+            const std::int64_t crop_us = elapsed_us(t_roi_begin, t_crop);
+            const std::int64_t rtt_us = elapsed_us(t_crop, t_rtt);
+
+            if (counted) {
+                metrics.crop.add(crop_us);
+                metrics.rtt.add(rtt_us);
+                metrics.rois += 1;
+                metrics.status_counts[classified ? result.status : kStatusNoReply] += 1;
+                frame_records.push_back({
+                    roi_index, crop_us, rtt_us,
+                    result.status, result.class_id, result.confidence_ppm
+                });
             }
 
-            std::cout << "frame=" << result.frame_id
-                      << " roi=" << result.roi_id
-                      << " status=" << result.status
-                      << " class=" << result.class_id
-                      << " confidence_ppm=" << result.confidence_ppm
-                      << '\n';
+            if (!quiet) {
+                std::cout << "frame=" << result.frame_id
+                          << " roi=" << result.roi_id
+                          << " status=" << result.status
+                          << " class=" << result.class_id
+                          << " confidence_ppm=" << result.confidence_ppm
+                          << " rtt_us=" << rtt_us
+                          << '\n';
+            }
 
             overlays.push_back({
                 candidate.object_bbox,
-                result.status,
-                result.class_id,
-                result.confidence_ppm
+                classified ? result.status : kStatusNoReply,
+                classified ? result.class_id : UINT32_MAX,
+                classified ? result.confidence_ppm : 0u
             });
+            ++roi_index;
+        }
+
+        /*
+         * 개별 ROI 실패가 아니라 연속 실패는 링크 장애다. 판단 자체가
+         * 불가능하므로 래치를 거치지 않고 곧바로 Stop 이다.
+         */
+        const std::uint64_t now_ms = safety_clock.nowMs();
+        if (consecutive_classify_failures >= kLinkFailureThreshold) {
+            decider.forceStop(now_ms);
+        } else {
+            (void)decider.decide(observations, now_ms);
+        }
+        if (transmitter) {
+            transmitter->publish(decider.state(), now_ms);
+        }
+
+        /* 연결이 끊겼으면 다음 프레임을 위해 한 번 붙여 본다. */
+        if (!client.isConnected()) {
+            (void)client.connectToServer(argv[2], port);
         }
 
         // 캡처/분류 루프는 이 호출로 절대 멈추지 않는다 - publish()는
         // 프레임을 clone해서 공유 슬롯에 넣고 바로 반환한다. 실제 JPEG
         // 인코딩과 브라우저로의 전송은 MjpegStreamServer 내부의 별도
         // 스레드에서 일어난다 (JETSON_MJPEG_STREAM_NOTES.md 참고).
+        const Clock::time_point t_before_publish = Clock::now();
         if (mjpeg_server) {
             mjpeg_server->publish(frame, std::move(overlays));
+        }
+        const Clock::time_point t_frame_end = Clock::now();
+
+        if (counted) {
+            const std::int64_t capture_us = elapsed_us(t_frame_begin, t_capture);
+            const std::int64_t propose_us = elapsed_us(t_capture, t_propose);
+            const std::int64_t publish_us =
+                elapsed_us(t_before_publish, t_frame_end);
+            const std::int64_t frame_us = elapsed_us(t_frame_begin, t_frame_end);
+
+            metrics.capture.add(capture_us);
+            metrics.propose.add(propose_us);
+            metrics.publish.add(publish_us);
+            metrics.frame.add(frame_us);
+            // 카메라가 다음 프레임을 내줄 때까지 기다린 시간을 뺀 값이
+            // 실제 처리 비용이다.
+            metrics.work.add(frame_us - capture_us);
+            metrics.frames += 1;
+            metrics.frame_by_roi_count[frame_records.size()].add(frame_us);
+            measure_end = t_frame_end;
+
+            if (csv.is_open()) {
+                if (frame_records.empty()) {
+                    // 검출 0건인 프레임도 결과를 갱신한 프레임이다.
+                    // 이 행이 없으면 프레임 수가 조용히 과소계상된다.
+                    csv << frame_id << ",-1,0," << capture_us << ','
+                        << propose_us << ",,," << publish_us << ','
+                        << frame_us << ",,,\n";
+                } else {
+                    for (const RoiRecord& record : frame_records) {
+                        csv << frame_id << ',' << record.roi_index << ','
+                            << frame_records.size() << ',' << capture_us << ','
+                            << propose_us << ',' << record.crop_us << ','
+                            << record.rtt_us << ',' << publish_us << ','
+                            << frame_us << ',' << record.status << ','
+                            << record.class_id << ','
+                            << record.confidence_ppm << '\n';
+                    }
+                }
+            }
+
+            if (progress_every != 0ul
+                && metrics.frames % progress_every == 0u) {
+                const std::int64_t span_us =
+                    elapsed_us(measure_start, measure_end);
+                const double span_s =
+                    static_cast<double>(span_us) / 1000000.0;
+                std::printf("[%zu frames] %.2f FPS, %zu ROI, %.2f ROI/s\n",
+                            metrics.frames,
+                            span_s > 0.0
+                                ? static_cast<double>(metrics.frames) / span_s
+                                : 0.0,
+                            metrics.rois,
+                            span_s > 0.0
+                                ? static_cast<double>(metrics.rois) / span_s
+                                : 0.0);
+                std::fflush(stdout);
+            }
         }
 
         ++frame_id;
     }
 
+    if (measuring) {
+        metrics.wall_us = elapsed_us(measure_start, measure_end);
+    }
+    print_summary(metrics, warmup_frames);
+
+    if (csv.is_open()) {
+        csv.flush();
+        csv.close();
+    }
+
+    /*
+     * 나가기 전에 Stop 을 한 번 더 남긴다. 이 프로세스가 사라지면 RPi 는
+     * 100 ms timeout 으로 Stop 을 유지하지만, 그 사이를 비워 둘 이유가 없다.
+     */
+    if (transmitter) {
+        decider.forceStop(safety_clock.nowMs());
+        transmitter->publish(decider.state(), safety_clock.nowMs());
+        transmitter_stop.store(true);
+        if (transmitter_thread.joinable()) {
+            transmitter_thread.join();
+        }
+        const auto safety_stats = transmitter->stats();
+        std::printf("safety uart: sent %llu, failures %llu, stale %llu,"
+                    " immediate stops %llu\n",
+                    (unsigned long long)safety_stats.frames_sent,
+                    (unsigned long long)safety_stats.send_failures,
+                    (unsigned long long)safety_stats.stale_events,
+                    (unsigned long long)safety_stats.immediate_stops);
+    }
+
     capture.requestStop();
     client.disconnect();
-    return EXIT_SUCCESS;
+    return capture_failed ? EXIT_FAILURE : EXIT_SUCCESS;
 }

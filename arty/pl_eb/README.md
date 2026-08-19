@@ -1,8 +1,9 @@
 # PL 인수인계 — Arty Z7-20 ROI 분류기 (arty_96_classifier)
 
-**받는 사람: 다음 PL 엔지니어.** PS 인계본(`arty96_pl_handoff/`)과 **내용이 다릅니다** —
-그쪽은 비트스트림·드라이버·golden 만 있고 **소스가 없습니다.** 이 폴더에는
-HLS 소스 12개·tcl·게이트·검증 하네스·문서가 들어 있습니다.
+**받는 사람: 다음 PL 엔지니어.** 이 폴더에는 HLS 소스 12개·tcl·게이트·검증
+하네스·문서와, PS 인계 산출물(`bitstream/`·`golden/`·`weights/`·`HANDOFF.md`·
+`PL_CONTRACT_DELTA.md`)이 **함께 있다** (2026-08-19 병합 — 예전에는
+`handoff/` 서브폴더로 분리돼 있었다).
 
 ## 이 폴더에 없는 것 (일부러 뺐습니다)
 
@@ -27,6 +28,40 @@ bash run.sh check          # 이제 전건 통과해야 합니다
 
 `system/*_arty*_v1.rpt` 가 **재현 목표**입니다. 빌드 후 WNS 와 면적이 그 리포트와
 크게 다르면 무언가 바뀐 것입니다.
+
+## PS 인계 산출물 — `bitstream/` `golden/` `weights/` `HANDOFF.md` `PL_CONTRACT_DELTA.md`
+
+원래 `repo_python/build_arty_deliverable.py`가 이 트리에서 별도 `handoff/`
+폴더로 **생성하던** 패키지였다. PS 쪽에서 소스 트리와 나란히 두고 쓰기
+편하도록 2026-08-19에 이 최상위로 병합했다 — `HANDOFF.md`는 옛 `handoff/README.md`를
+개명한 것이고(가중치 없던 구판 `HANDOFF.md`는 폐기), `golden/`·`bitstream/`·
+`weights/`도 같은 자리로 옮겼다. `sw/`·`reports/`·`HW/`처럼 `SW/`·`system/`·`HW/`와
+내용이 완전히 같던 중복은 지웠다.
+
+**재생성 스크립트를 다시 돌릴 때는 이 최상위 파일들과 충돌하지 않게
+`--out` 경로를 확인할 것** — 예전처럼 `handoff/`로 출력하면 이 병합과
+다시 갈라진다.
+
+```bash
+python3 repo_python/build_arty_deliverable.py . --out <별도 경로>
+```
+
+`DELIVERABLE_CHECKSUMS.sha256`는 병합 전 `handoff/` 구조 기준이라 지금
+경로와는 안 맞는다 (파일 안 주석 참고). 데이터 무결성은 `golden/SHA256SUMS`,
+`weights/SOURCE.sha256`로 확인한다.
+
+### `golden/` — 실가중치 golden 하나만 쓴다
+
+**2026-08-19: `forps_golden/`(seed=42 의사난수, 엔진 배선 검증 전용)을
+지웠다.** `golden/`(실제 학습 INT8 익스포트, `../models/roi_classifier_int8_eb/export/`
+와 바이트 일치)만 남았고, PS 온보드 대조는 물론 로컬 게이트에도 이걸 쓴다.
+
+⚠️ **`verif_host/build_and_run.sh`와 `python/gen_manifest.py`,
+`check_shapes.py`, `verify_golden.py`는 아직 `forps_golden/`을 참조하거나
+seed=42로 그 폴더를 재생성하는 코드를 그대로 갖고 있다.** 이 스크립트들을
+그대로 돌리면 지운 폴더가 다시 생기거나 존재하지 않는 경로를 찾다 실패할
+수 있다 — PL 팀이 직접 그 로직을 정리해야 한다(다음 PL 엔지니어에게
+인계할 사항).
 
 ## 반드시 먼저 읽을 문서
 

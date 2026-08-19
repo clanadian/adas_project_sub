@@ -112,6 +112,42 @@ Run:
     models/proposal/export/proposal_yolov8n_fp16.engine [mjpeg-port]
 ```
 
+## 제어 (TurtleBot 안전 상태)
+
+분류 결과로 안전 상태(`CLEAR`/`SLOW`/`STOP`)를 판단해 3-byte UART 프레임으로
+Raspberry Pi에 보낸다. 송신은 **20 ms 고정 주기의 별도 스레드**이고, 분류
+루프는 최신 판단만 갱신한다 — 프레임률이 ROI 개수에 따라 흔들려도 링크가
+끊기지 않게 하기 위해서다.
+
+```bash
+sudo systemctl disable --now nvgetty        # ttyTHS1의 serial console 해제
+ADAS_UART_PORT=/dev/ttyTHS1 \
+./jetson/build/jetson_roi_client /dev/video0 <PS_IP> 5000 <engine>
+```
+
+`ADAS_UART_PORT`가 없으면 제어 계층을 켜지 않고 기존과 동일하게 동작한다.
+설계·배선·캘리브레이션 절차는
+[`../docs/JETSON_CONTROL_DESIGN.md`](../docs/JETSON_CONTROL_DESIGN.md).
+
+| 컴포넌트 | 역할 |
+| --- | --- |
+| `DetectionAdapter` | bbox(Jetson) + class(Arty) → 판단용 레코드 |
+| `SafetyDecider` | 경로·거리 판단 → 정지 이벤트 래치 |
+| `SafetyTransmitter` | 20 ms 송신, 판단 watchdog, STOP 즉시 송신 |
+| `UartPort` | termios 래퍼 (테스트용 인터페이스 분리) |
+
+## 측정
+
+파이프라인 구간별 지연과 FPS는 실행 중 자동으로 수집되고 종료 시(Ctrl-C)
+요약이 출력된다. 환경변수(`ADAS_MEASURE_QUIET`, `ADAS_MEASURE_CSV`,
+`ADAS_TCP_NODELAY` 등)와 판정 절차는
+[`../docs/FPS_MEASUREMENT_GUIDE.md`](../docs/FPS_MEASUREMENT_GUIDE.md)를 본다.
+
+```bash
+ADAS_MEASURE_QUIET=1 ADAS_MEASURE_CSV=/tmp/jetson.csv \
+./jetson/build/jetson_roi_client /dev/video0 <PS_IP> 5000 <engine>
+```
+
 `RoiProposer` 모델이 없는 연결 시험에서는 네 번째 인자를 `--full-frame`으로
 바꾼다. 다섯 번째 인자 `mjpeg-port`는 선택이다 - 주면
 `http://<jetson-ip>:<mjpeg-port>/`로 카메라 화면 위에 ROI 박스와 분류

@@ -59,6 +59,25 @@ adas_tcp_roi_status_t adas_tcp_roi_server_accept(
     adas_tcp_roi_server_t* server
 );
 
+
+/*
+ * 연결된 client socket의 Nagle 알고리즘을 켜고 끈다.
+ *
+ * 응답은 header 20 B와 result 12 B로 나뉘어 두 번 송신되므로, Nagle이 켜져
+ * 있으면 두 번째 조각이 첫 조각의 ACK를 기다리다가 상대의 delayed ACK만큼
+ * (Linux 기본 최대 40 ms) 지연될 수 있다. ROI 한 건의 PL 실행이 약 6.6 ms인
+ * 것을 생각하면 이 지연은 처리량을 통째로 지배한다.
+ *
+ * 기본 동작은 바꾸지 않는다 - 켤지 말지는 호출자가 정하고, 측정으로 효과를
+ * 확인한 뒤 기본값을 옮기는 것이 순서다.
+ *
+ * accept() 이후에만 호출할 수 있다.
+ */
+adas_tcp_roi_status_t adas_tcp_roi_server_set_no_delay(
+    adas_tcp_roi_server_t* server,
+    int enable
+);
+
 /*
  * 20-byte request header와 96x96x3 RGB UINT8 payload를 모두 수신한다.
  * TCP 부분 수신을 내부에서 반복 처리한다.

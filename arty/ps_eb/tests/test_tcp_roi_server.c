@@ -3,6 +3,8 @@
 #include <arpa/inet.h>
 #include <assert.h>
 #include <errno.h>
+#include <netinet/in.h>
+#include <netinet/tcp.h>
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -253,9 +255,71 @@ static void test_peer_closed_during_receive(void) {
     adas_tcp_roi_server_close(&server);
 }
 
+/*
+ * TCP_NODELAY 토글. 응답이 header 20 B + result 12 B로 두 번 나뉘어 나가므로
+ * Nagle이 켜져 있으면 두 번째 조각이 상대의 delayed ACK를 기다린다. 그 스위치가
+ * 실제로 socket까지 도달하는지 getsockopt로 되읽어 확인한다.
+ */
+static void test_no_delay_toggle(void) {
+    adas_tcp_roi_server_t server;
+    adas_tcp_roi_server_init(&server);
+
+    assert(adas_tcp_roi_server_set_no_delay(NULL, 1)
+           == ADAS_TCP_ROI_INVALID_ARGUMENT);
+    /* 연결 전에는 적용할 client socket이 없다. */
+    assert(adas_tcp_roi_server_set_no_delay(&server, 1)
+           == ADAS_TCP_ROI_INVALID_ARGUMENT);
+
+    const adas_tcp_roi_server_config_t config = {
+        .bind_address = "127.0.0.1",
+        .port = 0u,
+        .backlog = 1
+    };
+    assert(adas_tcp_roi_server_listen(&server, &config) == ADAS_TCP_ROI_OK);
+
+    struct sockaddr_in bound_address;
+    socklen_t bound_address_size = sizeof(bound_address);
+    memset(&bound_address, 0, sizeof(bound_address));
+    assert(getsockname(
+        server.listen_fd,
+        (struct sockaddr*)&bound_address,
+        &bound_address_size
+    ) == 0);
+
+    const int client_fd = socket(AF_INET, SOCK_STREAM, 0);
+    assert(client_fd >= 0);
+    assert(connect(
+        client_fd,
+        (const struct sockaddr*)&bound_address,
+        sizeof(bound_address)
+    ) == 0);
+    assert(adas_tcp_roi_server_accept(&server) == ADAS_TCP_ROI_OK);
+
+    int value = 0;
+    socklen_t value_size = sizeof(value);
+    assert(adas_tcp_roi_server_set_no_delay(&server, 1) == ADAS_TCP_ROI_OK);
+    assert(getsockopt(
+        server.client_fd, IPPROTO_TCP, TCP_NODELAY, &value, &value_size
+    ) == 0);
+    assert(value != 0);
+
+    value = 1;
+    value_size = sizeof(value);
+    assert(adas_tcp_roi_server_set_no_delay(&server, 0) == ADAS_TCP_ROI_OK);
+    assert(getsockopt(
+        server.client_fd, IPPROTO_TCP, TCP_NODELAY, &value, &value_size
+    ) == 0);
+    assert(value == 0);
+
+    close(client_fd);
+    adas_tcp_roi_server_disconnect(&server);
+    adas_tcp_roi_server_close(&server);
+}
+
 int main(void) {
     test_fragmented_request_and_response();
     test_peer_closed_during_receive();
+    test_no_delay_toggle();
 
     puts("TCP ROI server tests passed");
     return EXIT_SUCCESS;

@@ -135,24 +135,24 @@ adas_classifier_model_status_t adas_classifier_model_load(
         status = read_exact_file(
             directory,
             "b_conv0.bin",
-            model->pl_parameters.b_conv0,
-            sizeof(model->pl_parameters.b_conv0)
+            model->b_conv0,
+            sizeof(model->b_conv0)
         );
     }
     if (status == ADAS_CLASSIFIER_MODEL_OK) {
         status = read_exact_file(
             directory,
             "b_conv1.bin",
-            model->pl_parameters.b_conv1,
-            sizeof(model->pl_parameters.b_conv1)
+            model->b_conv1,
+            sizeof(model->b_conv1)
         );
     }
     if (status == ADAS_CLASSIFIER_MODEL_OK) {
         status = read_exact_file(
             directory,
             "b_conv2.bin",
-            model->pl_parameters.b_conv2,
-            sizeof(model->pl_parameters.b_conv2)
+            model->b_conv2,
+            sizeof(model->b_conv2)
         );
     }
 

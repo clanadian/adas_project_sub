@@ -2,18 +2,33 @@
 
 namespace safety {
 
+bool isHazardClass(int32_t class_id, const ClassMap& classes) {
+    return class_id == classes.car || class_id == classes.person;
+}
+
 bool isHazardClass(int32_t class_id) {
-    return class_id == kClassCar || class_id == kClassPerson;
+    return isHazardClass(class_id, ClassMap{});
+}
+
+bool isSignClass(int32_t class_id, const ClassMap& classes) {
+    return class_id == classes.sign_warning ||
+           class_id == classes.sign_prohibition ||
+           class_id == classes.sign_mandatory;
 }
 
 bool isSignClass(int32_t class_id) {
-    return class_id == kClassSignWarning || class_id == kClassSignProhibition ||
-           class_id == kClassSignMandatory;
+    return isSignClass(class_id, ClassMap{});
 }
 
 State judgeOne(const DetectionRecord& det, const JudgeConfig& config) {
-    const bool is_sign = isSignClass(det.class_id);
-    if (!is_sign && !isHazardClass(det.class_id)) {
+    //background 는 분류기가 "물체가 아니다"라고 한 것이다. 위험 대상 목록에
+    //없으므로 아래 검사에서 어차피 걸러지지만, 의도를 명시해 둔다.
+    if (config.classes.background >= 0 &&
+        det.class_id == config.classes.background) {
+        return State::Clear;
+    }
+    const bool is_sign = isSignClass(det.class_id, config.classes);
+    if (!is_sign && !isHazardClass(det.class_id, config.classes)) {
         return State::Clear;
     }
     if (det.score < config.min_score) {

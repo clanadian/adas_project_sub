@@ -1,8 +1,17 @@
-/* Merge this node under the Zynq-7000 /amba node. */
+/*
+ * EB PL 용 노드. Zynq-7000 의 /amba 아래에 병합한다.
+ *
+ * ⚠️ DB 판과 compatible 문자열이 다르다("adas,classifier-eb-1.0").
+ *    같은 이름을 쓰면 반대쪽 드라이버가 붙어 존재하지 않는 레지스터를
+ *    건드린다. 주소창이 2개(DB)와 3개(EB)로 다르므로 섞이면 안 된다.
+ *
+ * reg 순서가 곧 드라이버의 ioremap 인덱스다: conv, conv0, maxpool.
+ */
 classifier@40000000 {
-    compatible = "adas,classifier-1.0";
+    compatible = "adas,classifier-eb-1.0";
     reg = <0x40000000 0x10000>,
-          <0x40010000 0x10000>;
-    reg-names = "arguments", "execution";
+          <0x40010000 0x10000>,
+          <0x40020000 0x10000>;
+    reg-names = "conv", "conv0", "maxpool";
     status = "okay";
 };

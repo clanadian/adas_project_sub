@@ -105,11 +105,11 @@ class_id는 1(car)·2(person)이 주로 나왔고 4(sign_prohibition)도 간헐�
 
 ## 6. 남은 일
 
-- **EB PS 가속기 코드가 아직 DB 주소맵이다.** `arty/ps_eb/include/accelerator/classifier_registers.h`가
-  `design_1.hwh`(DB) 기준 2-region 주소맵을 그대로 쓰고 있다. 실제 EB는 IP 3개
-  (conv/conv0/maxpool, 6-op 실행 순서)이므로 EB 실보드에서 그대로 돌리면 존재하지
-  않는 레지스터를 건드린다. 참고 자료(`arty_cls_address_map.h`,
-  `conv0_engine_hw_driver.h` 등)는 `arty/handoffs/eb/arty96_pl_handoff/sw/`에 있다.
+- ~~**EB PS 가속기 코드가 아직 DB 주소맵이다.**~~ → 해결. EB PS 를 3-IP 주소맵과
+  6-op 시퀀서로 다시 구현했다(커널 드라이버 ABI 2, `compatible` 도 분리).
+  bias 가 레지스터가 아니라 DDR 인 것과 ping-pong 활성 버퍼가 DB 와의 핵심
+  차이다. 남은 것은 **실보드 검증**이며, `ps_eb_golden_test` 가 op 6개를
+  하나씩 돌려 어디서 갈리는지 짚도록 만들어 두었다 (`arty/ps_eb/README.md`).
 - **`ps_classifier_server`가 아직 rootfs 레시피에 없다.** 오늘은 1회성 검증을 위해
   `arty/classifier_linux_db/build/.../ps-db-golden-test`가 생성한 툴체인 파일을
   재사용해 수동 크로스컴파일 후 `scp`로 올렸다. 정식 배포 전에

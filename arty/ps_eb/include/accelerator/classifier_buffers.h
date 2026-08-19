@@ -5,33 +5,27 @@
 #include <stdint.h>
 
 #include "accelerator/classifier_accelerator.h"
+#include "driver/adas_classifier_uapi.h"
 
 #ifdef __cplusplus
 extern "C" {
 #endif
 
 /*
- * PL에 전달할 데이터 크기입니다.
- * 입력은 PS 전처리가 만든 98x98x3 INT8이고,
- * 출력은 PL의 마지막 pool 결과인 12x12x64 INT8입니다.
+ * 버퍼 크기·offset 의 정본은 driver/adas_classifier_uapi.h 다.
+ * 커널 드라이버가 같은 값을 쓰기 때문이며, 여기서 다시 정의하면
+ * 사용자 공간과 커널이 갈라진다. 이 헤더는 이름만 이어 준다.
  */
-#define ADAS_CLASSIFIER_IFMAP_SIZE   (98u * 98u * 3u)
-#define ADAS_CLASSIFIER_W_CONV0_SIZE (16u * 3u * 3u * 3u)
-#define ADAS_CLASSIFIER_W_CONV1_SIZE (32u * 16u * 3u * 3u)
-#define ADAS_CLASSIFIER_W_CONV2_SIZE (64u * 32u * 3u * 3u)
-#define ADAS_CLASSIFIER_OUTPUT_SIZE  (12u * 12u * 64u)
+#define ADAS_CLASSIFIER_IFMAP_SIZE_BYTES   ADAS_CLASSIFIER_IFMAP_SIZE
+#define ADAS_CLASSIFIER_OUTPUT_SIZE_BYTES  ADAS_CLASSIFIER_OUTPUT_SIZE
 
 /*
- * 각 버퍼를 4 KiB 경계에 배치합니다.
- * 데이터끼리 겹치지 않게 하면서 mmap/캐시 관리 단위를 알아보기 쉽게 합니다.
+ * 예약 DDR 시작 주소는 4 KiB 정렬이어야 한다. 그래야 uapi 의 모든 offset 이
+ * 그대로 4 KiB 정렬을 유지한다(엔진 요구는 4 바이트지만, 버퍼가 캐시 라인을
+ * 독점해야 flush/invalidate 가 옆 버퍼를 건드리지 않는다).
  */
 #define ADAS_CLASSIFIER_BUFFER_ALIGNMENT 0x1000u
-#define ADAS_CLASSIFIER_IFMAP_OFFSET     0x00000u
-#define ADAS_CLASSIFIER_W_CONV0_OFFSET   0x08000u
-#define ADAS_CLASSIFIER_W_CONV1_OFFSET   0x09000u
-#define ADAS_CLASSIFIER_W_CONV2_OFFSET   0x0b000u
-#define ADAS_CLASSIFIER_OUTPUT_OFFSET    0x10000u
-#define ADAS_CLASSIFIER_BUFFER_SPAN      0x13000u
+#define ADAS_CLASSIFIER_BUFFER_SPAN      ADAS_CLASSIFIER_DMA_SPAN
 
 typedef enum adas_classifier_buffer_status {
     ADAS_CLASSIFIER_BUFFER_OK = 0,
@@ -40,11 +34,6 @@ typedef enum adas_classifier_buffer_status {
     ADAS_CLASSIFIER_BUFFER_ADDRESS_OVERFLOW = -3
 } adas_classifier_buffer_status_t;
 
-/*
- * reserved_base: Linux가 다른 용도로 사용하지 않는 예약 DDR의 물리 시작 주소
- * reserved_span: 그 예약 영역의 전체 크기
- * addresses: 위 영역에서 계산한, PL에 실제로 전달할 물리 주소들
- */
 typedef struct adas_classifier_buffer_layout {
     uintptr_t reserved_base;
     size_t reserved_span;
@@ -52,13 +41,24 @@ typedef struct adas_classifier_buffer_layout {
 } adas_classifier_buffer_layout_t;
 
 /*
- * 예약 DDR의 시작 주소를 기준으로 입력/가중치/출력 버퍼 주소를 계산합니다.
- * 실제 mmap이나 파일 복사는 하지 않으므로 PC 단위 테스트도 가능합니다.
+ * 예약 DDR 시작 주소에서 9개 버퍼의 물리 주소를 계산한다.
+ * mmap 이나 복사는 하지 않으므로 PC 단위 테스트로 검증할 수 있다.
  */
 adas_classifier_buffer_status_t adas_classifier_buffers_make_layout(
     uintptr_t reserved_base,
     size_t reserved_span,
     adas_classifier_buffer_layout_t* layout
+);
+
+/*
+ * 6-op 이 끝났을 때 최종 12x12x64 가 들어 있는 버퍼의 주소.
+ *
+ * ping-pong 이 짝수 번(6번) 돌아 항상 act_b 로 끝난다. 이 함수를 두는 이유는
+ * "왜 act_b 인가"를 한 곳에만 적어 두기 위해서다 — op 개수가 홀수로 바뀌면
+ * 여기만 고치면 된다.
+ */
+uintptr_t adas_classifier_buffers_output_address(
+    const adas_classifier_buffer_addresses_t* addresses
 );
 
 #ifdef __cplusplus

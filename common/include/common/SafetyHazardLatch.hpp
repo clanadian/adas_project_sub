@@ -31,6 +31,13 @@ public:
 
         //래치를 풀기 위해 latched class가 연속으로 안 보여야 하는 프레임 수(N).
         uint32_t release_frames = 10;
+
+        //같은 조건의 시간 하한(ms). 프레임 수만 쓰면 판단 주기가 바뀔 때
+        //해제 시간이 같이 흔들린다 - KR260 은 20ms 고정 tick 이었지만
+        //Jetson 은 프레임률이 ROI 개수에 따라 프레임마다 달라진다.
+        //반대로 시간만 쓰면 판단이 멈춘 사이에 시간이 흘러 저절로 풀린다.
+        //**둘 다 만족해야** 해제한다. 0 이면 시간 조건 없음(기존 동작).
+        uint64_t release_ms = 0;
     };
 
     HazardLatch();
@@ -55,6 +62,7 @@ private:
     int32_t  latched_class_  = -1;
     uint64_t hold_until_ms_  = 0;
     uint32_t absent_frames_  = 0;
+    uint64_t absent_since_ms_ = 0;
     State    last_state_     = State::Clear;
 };
 
