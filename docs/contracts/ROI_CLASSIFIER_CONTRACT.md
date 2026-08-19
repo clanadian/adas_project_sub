@@ -1,7 +1,8 @@
 # ROI 분류 파이프라인 계약
 
 이 문서는 Jetson Nano, Arty Z7-20 PS, PL ROI 분류 가속기 사이의
-현재 계약을 정의한다. PL 동작의 정본은 `pl/hls/HW/classifier_engine.*`이다.
+현재 계약을 정의한다. PL 동작의 정본은
+`arty/pl/hls/HW/classifier_engine.*`이다.
 
 ## 1. 전체 데이터 흐름
 
@@ -9,13 +10,16 @@
 Jetson: V4L2 YUYV → BGR CV_8UC3
         → ROI crop/padding/resize
         → 96×96 RGB UINT8 NHWC
-        → Ethernet
+        → persistent TCP client
 
-Arty PS: RGB UINT8 → signed INT8 양자화
+Arty PS Linux: TCP server
+         → RGB UINT8 수신
+         → signed INT8 양자화
          → 1픽셀 INT8 0 테두리 추가
          → 98×98×3 INT8 NHWC
          → PL 실행
          → GAP/FC/argmax
+         → 분류 결과 TCP 회신
 ```
 
 ## 2. Jetson ROI 계약
@@ -26,9 +30,49 @@ Arty PS: RGB UINT8 → signed INT8 양자화
 - 프레임 밖은 검은색으로 padding
 - OpenCV `INTER_LINEAR`로 `96×96` resize
 - crop 후 BGR→RGB 변환
-- Ethernet 전송 픽셀: `96×96×3`, RGB, UINT8, NHWC
+- TCP 전송 픽셀: `96×96×3`, RGB, UINT8, NHWC
 
-## 3. 입력 양자화·padding 계약
+## 3. Jetson–PS 통신 계약
+
+- transport: TCP
+- Jetson Nano Linux: TCP client
+- Arty Z7-20 PS Linux: POSIX socket TCP server
+- ROI마다 연결하지 않고 실행 중 하나의 TCP 연결을 유지한다.
+- 요청 payload: `96×96×3 = 27,648` bytes RGB UINT8 NHWC
+- 요청에는 최소한 `frame_id`, `roi_id`, payload length를 포함한다.
+- PS 응답에는 최소한 `frame_id`, `roi_id`, `class_id`, score를 포함한다.
+- TCP는 메시지 경계를 보장하지 않으므로, 송신·수신 코드는 지정된
+  header/payload 길이를 모두 처리할 때까지 반복한다.
+- multi-byte 정수는 network byte order를 사용한다.
+- 초기 구현은 ROI 요청 하나를 처리하고 결과를 회신한 뒤 다음
+  ROI를 보내는 순차 방식으로 한다.
+
+공통 header는 20 bytes이며 다음 field를 순서대로 배치한다.
+
+| offset | size | field |
+|---:|---:|---|
+| 0 | 4 | magic: ASCII `ROI1` |
+| 4 | 2 | version: `1` |
+| 6 | 2 | message type: request `1`, response `2` |
+| 8 | 4 | frame ID |
+| 12 | 4 | ROI ID |
+| 16 | 4 | payload size |
+
+Request payload는 27,648 bytes RGB UINT8 NHWC 이미지다.
+Response payload는 다음 12 bytes이다.
+
+| offset | size | field |
+|---:|---:|---|
+| 0 | 4 | status |
+| 4 | 4 | class ID |
+| 8 | 4 | confidence ppm (`0..1,000,000`) |
+
+Status는 `OK=0`, `INVALID_HEADER=1`, `INVALID_PAYLOAD=2`,
+`ACCELERATOR_ERROR=3`, `POSTPROCESS_ERROR=4`를 사용한다.
+오류 응답의 class ID는 `UINT32_MAX`, confidence는 0으로 보낸다.
+정확한 상수·offset·직렬화 규칙의 정본은 `shared/include/roi_protocol.h`이다.
+
+## 4. 입력 양자화·padding 계약
 
 학습 입력은 `pixel_u8 / 255.0`이며 mean/std 정규화는 사용하지 않는다.
 실제 추론 입력은 Arty PS에서 다음과 같이 변환한다.
@@ -45,7 +89,7 @@ q = clamp(round(pixel_u8 × 127 / 255), 0, 127)
 - PS가 96×96 ROI 외곽에 INT8 0 테두리를 추가해 PL에
   `98×98×3` NHWC로 전달
 
-## 4. PL 고정 구조
+## 5. PL 고정 구조
 
 ```text
 98×98×3 pre-padded input
@@ -63,7 +107,7 @@ q = clamp(round(pixel_u8 × 127 / 255), 0, 127)
   ReLU 범위 `0..127`로 clamp한다.
 - 별도의 반올림 offset은 적용하지 않는다.
 
-## 5. 가중치 레이아웃
+## 6. 가중치 레이아웃
 
 | 레이어 | 입력 레이아웃 | 형식 |
 |---|---|---|
@@ -74,7 +118,7 @@ q = clamp(round(pixel_u8 × 127 / 255), 0, 127)
 각 레이어는 INT32 bias와 `multiplier: INT32`, `shift: UINT8` requant
 파라미터를 사용한다.
 
-## 6. 클래스 계약
+## 7. 클래스 계약
 
 | index | class |
 |---:|---|
@@ -85,7 +129,7 @@ q = clamp(round(pixel_u8 × 127 / 255), 0, 127)
 | 4 | sign_prohibition |
 | 5 | sign_mandatory |
 
-## 7. PS 후처리
+## 8. PS 후처리
 
 PL이 반환한 `12×12×64` feature map에 다음을 수행한다.
 
@@ -97,9 +141,8 @@ GAP의 제수 `1/144`를 GAP에서 적용할지 FC scale에 흡수할지와
 FC 양자화 규칙은 학습·export 결과와 함께 최종 확정한다.
 두 곳에서 중복으로 적용하지 않는다.
 
-## 8. 미확정 항목
+## 9. 미확정 항목
 
-- Ethernet packet header와 byte order
 - GAP/FC 정수 양자화 규칙
 - 학습 가중치 기반 레이어별 golden input/output
 - PS 빌드용 XSA 최종 배포 경로

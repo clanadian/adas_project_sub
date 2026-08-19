@@ -11,12 +11,23 @@
 *.elf
 *.aarch64
 
+# 팀 전달용 원본 압축 파일. 필요한 소스는 저장소에 별도로 반영한다.
+docs/*.zip
+
+# PetaLinux에서 재생성되는 SD 배포 이미지
+arty/deploy/
+
+# 카메라/ROI 수동 검증 산출물
+jetson/artifacts/
+
 # CMake / C++ build outputs
 build/
 CMakeCache.txt
 CMakeFiles/
 cmake_install.cmake
 Makefile
+!arty/ps/kernel/Makefile
+!arty/classifier_linux/project-spec/meta-user/recipes-modules/adas-classifier/files/Makefile
 *.o
 *.obj
 

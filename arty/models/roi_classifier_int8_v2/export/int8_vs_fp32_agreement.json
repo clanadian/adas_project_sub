@@ -1,0 +1,7 @@
+{
+  "n": 300,
+  "int8_vs_fp32_agree": 272,
+  "int8_vs_fp32_agreement_rate": 0.9066666666666666,
+  "int8_vs_ground_truth_accuracy": 0.9033333333333333,
+  "fp32_vs_ground_truth_accuracy": 0.9433333333333334
+}

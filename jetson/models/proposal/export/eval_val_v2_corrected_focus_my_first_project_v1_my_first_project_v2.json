@@ -1,0 +1,24 @@
+{
+  "standard_map": null,
+  "sweep": [
+    {
+      "conf": 0.1,
+      "iou": 0.45,
+      "n_images": 4249,
+      "n_gt_boxes": 22015,
+      "recall_uncapped": 0.9683397683397683,
+      "recall_top10": 0.9626163979105156,
+      "recall_top10_per_class": {
+        "car": 0.9256338028169014,
+        "person": 0.9867285458394398,
+        "sign_warning": 1.0,
+        "sign_prohibition": 1.0,
+        "sign_mandatory": 1.0
+      },
+      "recall_top10_small_objects": null,
+      "n_small_objects": 0,
+      "avg_proposals_per_image_uncapped": 5.725817839491645,
+      "frac_images_over_10_proposals": 0.05507178159566957
+    }
+  ]
+}

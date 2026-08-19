@@ -1,0 +1,122 @@
+{
+  "standard_map": {
+    "map50": 0.6054159862243134,
+    "map50_95": 0.3539383365294786
+  },
+  "sweep": [
+    {
+      "conf": 0.1,
+      "iou": 0.45,
+      "n_images": 8827,
+      "n_gt_boxes": 99375,
+      "recall_uncapped": 0.6138465408805032,
+      "recall_top10": 0.5322465408805032,
+      "recall_top10_per_class": {
+        "car": 0.4636464398099194,
+        "person": 0.9235249621785174,
+        "sign_warning": 0.6581196581196581,
+        "sign_prohibition": 0.5145978864409816,
+        "sign_mandatory": 0.6863425925925926
+      },
+      "recall_top10_small_objects": 0.27837475371293274,
+      "n_small_objects": 60397,
+      "avg_proposals_per_image_uncapped": 10.575620256032627,
+      "frac_images_over_10_proposals": 0.41701597371700466
+    },
+    {
+      "conf": 0.1,
+      "iou": 0.6,
+      "n_images": 8827,
+      "n_gt_boxes": 99375,
+      "recall_uncapped": 0.625096855345912,
+      "recall_top10": 0.5311295597484277,
+      "recall_top10_per_class": {
+        "car": 0.46200298115755545,
+        "person": 0.9248108925869895,
+        "sign_warning": 0.6581196581196581,
+        "sign_prohibition": 0.5158516926383665,
+        "sign_mandatory": 0.6828703703703703
+      },
+      "recall_top10_small_objects": 0.2765037998576088,
+      "n_small_objects": 60397,
+      "avg_proposals_per_image_uncapped": 11.737056757675314,
+      "frac_images_over_10_proposals": 0.4383142630565311
+    },
+    {
+      "conf": 0.2,
+      "iou": 0.45,
+      "n_images": 8827,
+      "n_gt_boxes": 99375,
+      "recall_uncapped": 0.5830238993710691,
+      "recall_top10": 0.5241459119496855,
+      "recall_top10_per_class": {
+        "car": 0.4568178054093996,
+        "person": 0.9217095310136157,
+        "sign_warning": 0.6524216524216524,
+        "sign_prohibition": 0.4798495432563138,
+        "sign_mandatory": 0.6579861111111112
+      },
+      "recall_top10_small_objects": 0.26849015679586735,
+      "n_small_objects": 60397,
+      "avg_proposals_per_image_uncapped": 8.428344851025264,
+      "frac_images_over_10_proposals": 0.3212869604622182
+    },
+    {
+      "conf": 0.2,
+      "iou": 0.6,
+      "n_images": 8827,
+      "n_gt_boxes": 99375,
+      "recall_uncapped": 0.5903094339622641,
+      "recall_top10": 0.5235924528301886,
+      "recall_top10_per_class": {
+        "car": 0.4559769660988878,
+        "person": 0.9221633888048412,
+        "sign_warning": 0.6524216524216524,
+        "sign_prohibition": 0.4805660039405338,
+        "sign_mandatory": 0.6585648148148148
+      },
+      "recall_top10_small_objects": 0.267645743993907,
+      "n_small_objects": 60397,
+      "avg_proposals_per_image_uncapped": 8.932026736150448,
+      "frac_images_over_10_proposals": 0.3429251161209924
+    },
+    {
+      "conf": 0.3,
+      "iou": 0.45,
+      "n_images": 8827,
+      "n_gt_boxes": 99375,
+      "recall_uncapped": 0.5471899371069182,
+      "recall_top10": 0.5097559748427672,
+      "recall_top10_per_class": {
+        "car": 0.4424470971933803,
+        "person": 0.9204236006051437,
+        "sign_warning": 0.6438746438746439,
+        "sign_prohibition": 0.4399068601110514,
+        "sign_mandatory": 0.6238425925925926
+      },
+      "recall_top10_small_objects": 0.25103895888868655,
+      "n_small_objects": 60397,
+      "avg_proposals_per_image_uncapped": 7.129942222725728,
+      "frac_images_over_10_proposals": 0.2251047921151014
+    },
+    {
+      "conf": 0.3,
+      "iou": 0.6,
+      "n_images": 8827,
+      "n_gt_boxes": 99375,
+      "recall_uncapped": 0.5512251572327044,
+      "recall_top10": 0.5095245283018868,
+      "recall_top10_per_class": {
+        "car": 0.4420521575172308,
+        "person": 0.9208018154311649,
+        "sign_warning": 0.6438746438746439,
+        "sign_prohibition": 0.44026509045316137,
+        "sign_mandatory": 0.6244212962962963
+      },
+      "recall_top10_small_objects": 0.25070781661340796,
+      "n_small_objects": 60397,
+      "avg_proposals_per_image_uncapped": 7.35028888637136,
+      "frac_images_over_10_proposals": 0.23824628979268153
+    }
+  ]
+}

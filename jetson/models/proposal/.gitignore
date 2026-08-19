@@ -1,0 +1,3 @@
+# TensorRT engine은 JetPack/TensorRT/GPU 환경에 종속되므로 Jetson에서 생성한다.
+*.engine
+*.plan
