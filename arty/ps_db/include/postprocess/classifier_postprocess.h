@@ -61,10 +61,24 @@ adas_classifier_postprocess_status_t adas_classifier_argmax(
 );
 
 /*
- * confidence 계산은 아직 만들지 않습니다.
- * logit scale과 softmax 정책이 모델 manifest에서 확정되어야
- * confidence_ppm(0..1,000,000)을 올바르게 계산할 수 있습니다.
+ * logits(정수)에 export manifest.json의 logits_scale을 곱해 실수 logit으로
+ * 되돌린 뒤 softmax를 적용하고, argmax 클래스의 확률을
+ * confidence_ppm(0..1,000,000)으로 반환합니다.
+ *
+ * argmax_class_id는 이미 adas_classifier_argmax()로 구한 값을 그대로
+ * 넘깁니다 - 여기서 다시 최댓값을 찾지 않고, softmax 확률 중 그 클래스의
+ * 값만 계산에 사용합니다 (같은 로직을 두 번 만들지 않기 위함).
+ *
+ * 오버플로/언더플로 없이 exp()가 계산되도록 최댓값을 뺀 뒤 지수를 취하는
+ * 표준 softmax 안정화 기법을 씁니다.
  */
+adas_classifier_postprocess_status_t adas_classifier_confidence_ppm(
+    const int32_t* logits,
+    size_t class_count,
+    uint32_t argmax_class_id,
+    float logits_scale,
+    uint32_t* confidence_ppm
+);
 
 #ifdef __cplusplus
 }

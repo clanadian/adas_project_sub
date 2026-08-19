@@ -23,6 +23,7 @@ target_include_directories(adas_ps_core
 )
 
 target_compile_options(adas_ps_core PRIVATE -Wall -Wextra -Wpedantic)
+target_link_libraries(adas_ps_core PUBLIC m)
 
 add_library(adas_ps_dummy STATIC src/app/dummy_roi_service.c)
 target_link_libraries(adas_ps_dummy PUBLIC adas_ps_core)

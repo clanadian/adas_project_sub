@@ -19,6 +19,7 @@ add_library(adas_jetson_pipeline STATIC
     src/roi/TensorRtProposalEngine.cpp
     src/preprocess/RoiPreprocessor.cpp
     src/network/TcpRoiClient.cpp
+    src/stream/MjpegStreamServer.cpp
 )
 
 target_include_directories(adas_jetson_pipeline
@@ -30,6 +31,7 @@ target_include_directories(adas_jetson_pipeline
 target_link_libraries(adas_jetson_pipeline
     PUBLIC
         ${OpenCV_LIBS}
+        Threads::Threads
 )
 
 target_compile_options(adas_jetson_pipeline

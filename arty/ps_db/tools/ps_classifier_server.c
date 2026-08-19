@@ -31,6 +31,18 @@ static int parse_i32(const char* text, int32_t* value) {
     return 0;
 }
 
+/* export manifest.json의 logits_scale처럼 아주 작은 양수 실수를 받습니다. */
+static int parse_positive_float(const char* text, float* value) {
+    errno = 0;
+    char* end = NULL;
+    const float parsed = strtof(text, &end);
+    if (errno != 0 || end == text || *end != '\0' || !(parsed > 0.0F)) {
+        return -1;
+    }
+    *value = parsed;
+    return 0;
+}
+
 static adas_roi_result_t failed_result(uint32_t status) {
     const adas_roi_result_t result = {
         .status = status,
@@ -43,7 +55,8 @@ static adas_roi_result_t failed_result(uint32_t status) {
 static adas_roi_result_t classify_one(
     const uint8_t image[ADAS_ROI_IMAGE_PAYLOAD_SIZE],
     adas_classifier_device_t* device,
-    const adas_classifier_model_t* model
+    const adas_classifier_model_t* model,
+    float logits_scale
 ) {
     int8_t* const ifmap = adas_classifier_device_ifmap(device);
     const int8_t* const pl_output = adas_classifier_device_output(device);
@@ -72,14 +85,25 @@ static adas_roi_result_t classify_one(
         fc_status == ADAS_CLASSIFIER_POSTPROCESS_OK
         ? adas_classifier_argmax(logits, model->class_count, &class_id)
         : fc_status;
-    free(logits);
-    if (argmax_status != ADAS_CLASSIFIER_POSTPROCESS_OK)
+    if (argmax_status != ADAS_CLASSIFIER_POSTPROCESS_OK) {
+        free(logits);
         return failed_result(ADAS_ROI_STATUS_POSTPROCESS_ERROR);
+    }
+
+    /*
+     * confidence 계산 실패는 분류 자체(class_id)를 무효화하지 않습니다 -
+     * argmax는 이미 성공했으므로, confidence만 0으로 둔 채 정상 응답을
+     * 보냅니다.
+     */
+    uint32_t confidence_ppm = 0u;
+    (void)adas_classifier_confidence_ppm(
+        logits, model->class_count, class_id, logits_scale, &confidence_ppm);
+    free(logits);
 
     const adas_roi_result_t result = {
         .status = ADAS_ROI_STATUS_OK,
         .class_id = class_id,
-        .confidence_ppm = 0u
+        .confidence_ppm = confidence_ppm
     };
     return result;
 }
@@ -88,16 +112,17 @@ static void print_usage(const char* program) {
     fprintf(stderr,
         "usage: %s <bind|*> <port> <model-dir> <classes> <gap-div> "
         "<rq0-mul> <rq0-shift> <rq1-mul> <rq1-shift> "
-        "<rq2-mul> <rq2-shift>\n", program);
+        "<rq2-mul> <rq2-shift> <logits-scale>\n", program);
 }
 
 int main(int argc, char** argv) {
-    if (argc != 12) {
+    if (argc != 13) {
         print_usage(argv[0]);
         return EXIT_FAILURE;
     }
     uint64_t numeric[6] = {0};
     int32_t multipliers[3] = {0};
+    float logits_scale = 0.0F;
     if (parse_u64(argv[2], &numeric[0]) != 0 || numeric[0] == 0u
         || numeric[0] > UINT16_MAX
         || parse_u64(argv[4], &numeric[1]) != 0 || numeric[1] == 0u
@@ -109,7 +134,8 @@ int main(int argc, char** argv) {
         || parse_i32(argv[8], &multipliers[1]) != 0
         || parse_u64(argv[9], &numeric[4]) != 0 || numeric[4] > UINT8_MAX
         || parse_i32(argv[10], &multipliers[2]) != 0
-        || parse_u64(argv[11], &numeric[5]) != 0 || numeric[5] > UINT8_MAX) {
+        || parse_u64(argv[11], &numeric[5]) != 0 || numeric[5] > UINT8_MAX
+        || parse_positive_float(argv[12], &logits_scale) != 0) {
         print_usage(argv[0]);
         return EXIT_FAILURE;
     }
@@ -176,7 +202,8 @@ int main(int argc, char** argv) {
             uint8_t image[ADAS_ROI_IMAGE_PAYLOAD_SIZE];
             if (adas_tcp_roi_server_receive_request(
                     &server, &request, image) != ADAS_TCP_ROI_OK) break;
-            const adas_roi_result_t result = classify_one(image, &device, &model);
+            const adas_roi_result_t result =
+                classify_one(image, &device, &model, logits_scale);
             if (adas_tcp_roi_server_send_result(&server, &request, &result)
                 != ADAS_TCP_ROI_OK) break;
         }
