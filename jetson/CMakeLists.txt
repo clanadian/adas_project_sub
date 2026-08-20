@@ -14,6 +14,7 @@ find_library(CUDART_LIBRARY cudart PATHS /usr/local/cuda/lib64)
 
 add_library(adas_jetson_pipeline STATIC
     src/capture/V4L2Capture.cpp
+    src/capture/FrameSource.cpp
     src/roi/RoiCropper.cpp
     src/roi/RoiProposer.cpp
     src/roi/TensorRtProposalEngine.cpp

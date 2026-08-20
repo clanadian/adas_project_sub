@@ -42,9 +42,9 @@ GAP/FC/argmax: PS에서 수행
 
 | 레이어 | multiplier (INT32) | shift |
 |---|---|---|
-| conv0 | 1342756158 | 38 |
-| conv1 | 1322019071 | 35 |
-| conv2 | 1920779908 | 38 |
+| conv0 | 1467099144 | 38 |
+| conv1 | 1160501223 | 35 |
+| conv2 | 1422046702 | 38 |
 
 ### GAP 처리 규칙 (중요)
 
@@ -82,9 +82,9 @@ argmax만 필요하면 `logits_int32`를 그대로 쓰면 됩니다. 실수 conf
 
 | 레이어 | bias에 포함된 보정값 |
 |---|---|
-| conv0 | +102 |
-| conv1 | +13 |
-| conv2 | +72 |
+| conv0 | +94 |
+| conv1 | +15 |
+| conv2 | +97 |
 
 `manifest.json`의 각 레이어에 `bias_includes_rounding_compensation` 필드로 명시되어
 있습니다. **PS/PL은 이 값을 따로 더하면 안 됩니다** — 이미 `b_conv*.bin` 안에 들어있습니다.
@@ -103,14 +103,46 @@ INT32로 충분합니다.
 
 ```
 FP32 (원본 모델)      94.3%
-INT8 (이 산출물)      90.3%     ← 약 4%p 하락
-INT8 vs FP32 일치율   90.7%
+INT8 (이 산출물)      94.3%     ← FP32와 사실상 동률
+INT8 vs FP32 일치율   97.7%
                       (실제 val crop 300장, 정답 라벨 기준)
 ```
 
-4%p 하락은 하드웨어가 요구하는 **per-tensor 대칭 양자화**(per-channel 불가) + 단순
-abs-max calibration 조합에서 통상적인 수준입니다. 더 줄이려면 QAT(양자화 인지 학습)가
-필요하며 재학습이 수반됩니다 — 현 계약서에는 QAT 요구가 없어 PTQ로 진행했습니다.
+## 캘리브레이션 개선 (90.3% → 94.3%)
+
+이전 산출물은 **단순 abs-max calibration + CLE 없음**으로 90.3%였습니다(하드웨어가
+요구하는 per-tensor 대칭 양자화 자체의 한계로 봤었음). 실측해보니 그게 아니라
+calibration 방법 문제였습니다.
+
+percentile(100/99.99/99.9/99.5/99/98) × CLE(적용/미적용) 조합을 실제 val set 300장으로
+스윕한 결과:
+
+| percentile | CLE | INT8 정확도 | FP32 대비 일치율 |
+|---|---|---|---|
+| 100 (이전 산출물과 동일 조건) | 미적용 | 90.3% | 90.7% |
+| 99.5 | 미적용 | 93.0% | 94.7% |
+| 98 | 미적용 | 88.7% | 91.0% (너무 세게 자르면 역효과) |
+| 100 | **적용** | 94.0% | 97.7% |
+| **99.9** | **적용** | **94.3%** | **97.7%** |
+| 99.5 | 적용 | 91.0% | 93.0% (CLE 적용 후엔 세게 자를수록 오히려 손해) |
+
+**개선의 대부분은 CLE(Cross-Layer Equalization)에서 나옵니다.** `conv0`의 채널별
+가중치 크기가 **25배** 차이 나서(`cle.py`의 `channel_spread`로 실측), per-tensor
+스케일이 가장 큰 채널에 맞춰지고 작은 채널은 127단계 중 몇 단계만 쓰게 됩니다. leaky
+ReLU뿐 아니라 **plain ReLU도 양의 동차함수**(`ReLU(k·x)=k·ReLU(x)`, k>0)라서 CLE
+전제조건(활성화 함수가 양의 스케일과 교환됨)을 그대로 만족합니다 — 레이어 L의 출력
+채널 i를 1/s로 줄이고 L+1의 입력 채널 i를 s로 키우면 MaxPool·GAP도 양의 스케일과
+교환되므로 **네트워크 함수는 수학적으로 완전히 동일**합니다(CLE 전후 FP32 정확도가
+94.3%로 동일한 것으로 검증). CLE 적용 후 채널 스펙트럼: `conv0` 25.0x→4.7x, `conv1`
+9.5x→2.8x, `conv2` 3.4x→2.5x.
+
+Percentile calibration(99.9)은 CLE 위에 얹었을 때 소폭(94.0%→94.3%) 추가 이득이
+있습니다. 너무 세게 자르면(98 이하) 오히려 나빠지는데, ReLU+maxpool 조합에서는 큰
+활성화값이 maxpool에서 살아남는 진짜 신호인 경우가 많아 percentile 클리핑이 그 신호를
+지워버리기 때문으로 보입니다.
+
+QAT(양자화 인지 학습, 재학습 필요) 없이 **PTQ(export-side 변환)만으로** FP32와 동률까지
+회복했으므로, 지금은 QAT가 필요 없습니다.
 
 ## 검증 완료 항목
 
@@ -128,12 +160,13 @@ abs-max calibration 조합에서 통상적인 수준입니다. 더 줄이려면 
 ## 파일 구성
 
 ```
-quantize_export.py   BatchNorm fusion → 실측 calibration(512장) → per-tensor 대칭 양자화
-                     → requant multiplier/shift 유도 → WPACK 변환 → .bin + manifest 출력
+quantize_export.py   BatchNorm fusion → CLE → percentile calibration(512장) → per-tensor
+                     대칭 양자화 → requant multiplier/shift 유도 → WPACK 변환 → .bin + manifest 출력
 golden_int8.py       순수 정수 연산 bit-exact golden 모델 (int8×int8→int32 누적, int64
                      requant, ReLU, int8 clamp). 레이어별 golden 생성 + FP32 대조 검증
 fixed_point.py       requant 산술 유틸 (rounding 없는 arithmetic right shift, multiplier/shift 유도,
                      대칭 양자화)
+cle.py               Cross-Layer Equalization (per-tensor 양자화용 채널 균등화)
 ```
 
 ## 재현 방법

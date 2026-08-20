@@ -2,6 +2,8 @@
 #include <cstdio>
 #include <cstdint>
 #include <cstring>
+#include <vector>
+#include <string>
 
 // -----------------------------------------------------------------------------
 // Deterministic bit-exact C/RTL co-simulation testbench.
@@ -177,6 +179,65 @@ static uint64_t fnv1a_output(const int8_t out[P2_OUT_SIZE][P2_OUT_SIZE][C2_OUT_C
     return h;
 }
 
+static FILE *open_ps_file(const char *name) {
+    const char *roots[] = {
+        "inputs/roi_classifier_int8_export_v2/roi_classifier_int8_export/export/",
+        "../../../../inputs/roi_classifier_int8_export_v2/roi_classifier_int8_export/export/"
+    };
+    for (unsigned i=0; i<sizeof(roots)/sizeof(roots[0]); ++i) {
+        std::string path=std::string(roots[i])+name;
+        FILE *f=std::fopen(path.c_str(),"rb"); if(f) return f;
+    }
+    return 0;
+}
+
+static bool read_bytes(const char *name, void *dst, size_t bytes) {
+    FILE *f=open_ps_file(name);
+    if(!f){std::printf("FAIL: cannot open %s\n",name); return false;}
+    bool ok=std::fread(dst,1,bytes,f)==bytes && std::fgetc(f)==EOF;
+    std::fclose(f); if(!ok) std::printf("FAIL: bad size %s\n",name); return ok;
+}
+
+static bool read_npy_i8(const char *name, int8_t *dst, size_t bytes) {
+    FILE *f=open_ps_file(name); unsigned char p[12];
+    if(!f){std::printf("FAIL: cannot open %s\n",name); return false;}
+    if(std::fread(p,1,10,f)!=10 || std::memcmp(p,"\x93NUMPY",6)!=0){std::fclose(f);return false;}
+    unsigned n=(unsigned)p[8]|((unsigned)p[9]<<8);
+    if(p[6]>=2){if(std::fread(p+10,1,2,f)!=2){std::fclose(f);return false;} n|=(unsigned)p[10]<<16|(unsigned)p[11]<<24;}
+    std::vector<char> h(n+1,0);
+    bool header=std::fread(&h[0],1,n,f)==n && std::string(&h[0]).find("'descr': '|i1'")!=std::string::npos;
+    bool ok=header && std::fread(dst,1,bytes,f)==bytes && std::fgetc(f)==EOF;
+    std::fclose(f); if(!ok) std::printf("FAIL: invalid INT8 NPY %s\n",name); return ok;
+}
+
+static int run_ps_team_golden() {
+    static act_t in[C0_PAD_SIZE][C0_PAD_SIZE][C0_IN_CH], got[P2_OUT_SIZE][P2_OUT_SIZE][C2_OUT_CH];
+    static weight_t w0[C0_OUT_CH][C0_IN_CH][K][K], w1[C1_OUT_CH][K][K][C1_IN_CH], w2[C2_OUT_CH][K][K][C2_IN_CH];
+    static bias_t b0[C0_OUT_CH],b1[C1_OUT_CH],b2[C2_OUT_CH];
+    static int8_t ri[C0_PAD_SIZE][C0_PAD_SIZE][C0_IN_CH],rw0[C0_OUT_CH][C0_IN_CH][K][K];
+    static int8_t rw1[C1_OUT_CH][K][K][C1_IN_CH],rw2[C2_OUT_CH][K][K][C2_IN_CH];
+    static int8_t exp[P2_OUT_SIZE][P2_OUT_SIZE][C2_OUT_CH];
+    static int32_t rb0[C0_OUT_CH],rb1[C1_OUT_CH],rb2[C2_OUT_CH];
+    if(!read_npy_i8("golden_input_98x98x3_int8.npy",&ri[0][0][0],sizeof(ri)) ||
+       !read_npy_i8("golden_conv2_pool.npy",&exp[0][0][0],sizeof(exp)) ||
+       !read_bytes("w_conv0.bin",rw0,sizeof(rw0)) || !read_bytes("w_conv1.bin",rw1,sizeof(rw1)) ||
+       !read_bytes("w_conv2.bin",rw2,sizeof(rw2)) || !read_bytes("b_conv0.bin",rb0,sizeof(rb0)) ||
+       !read_bytes("b_conv1.bin",rb1,sizeof(rb1)) || !read_bytes("b_conv2.bin",rb2,sizeof(rb2))) return 1;
+    for(unsigned y=0;y<C0_PAD_SIZE;++y)for(unsigned x=0;x<C0_PAD_SIZE;++x)for(unsigned c=0;c<C0_IN_CH;++c)in[y][x][c]=ri[y][x][c];
+    for(unsigned o=0;o<C0_OUT_CH;++o){b0[o]=rb0[o];for(unsigned i=0;i<C0_IN_CH;++i)for(unsigned y=0;y<K;++y)for(unsigned x=0;x<K;++x)w0[o][i][y][x]=rw0[o][i][y][x];}
+    for(unsigned o=0;o<C1_OUT_CH;++o){b1[o]=rb1[o];for(unsigned y=0;y<K;++y)for(unsigned x=0;x<K;++x)for(unsigned i=0;i<C1_IN_CH;++i)w1[o][y][x][i]=rw1[o][y][x][i];}
+    for(unsigned o=0;o<C2_OUT_CH;++o){b2[o]=rb2[o];for(unsigned y=0;y<K;++y)for(unsigned x=0;x<K;++x)for(unsigned i=0;i<C2_IN_CH;++i)w2[o][y][x][i]=rw2[o][y][x][i];}
+    const requant_t q0={1342756158,38},q1={1322019071,35},q2={1920779908,38};
+    classifier_top(in,w0,b0,q0,w1,b1,q1,w2,b2,q2,got);
+    unsigned errors=0,shown=0; uint64_t gh=1469598103934665603ULL,eh=1469598103934665603ULL;
+    for(unsigned y=0;y<P2_OUT_SIZE;++y)for(unsigned x=0;x<P2_OUT_SIZE;++x)for(unsigned c=0;c<C2_OUT_CH;++c){
+        int g=(int)got[y][x][c],e=(int)exp[y][x][c]; gh^=(uint8_t)g;gh*=1099511628211ULL;eh^=(uint8_t)e;eh*=1099511628211ULL;
+        if(g!=e){++errors;if(shown++<20)std::printf("PS GOLDEN MISMATCH y=%u x=%u c=%u got=%d expected=%d\n",y,x,c,g,e);}
+    }
+    std::printf("PS-team golden: mismatches=%u expected_hash=0x%016llx got_hash=0x%016llx\n",errors,(unsigned long long)eh,(unsigned long long)gh);
+    return errors?1:0;
+}
+
 int main() {
     static act_t ifmap_padded[C0_PAD_SIZE][C0_PAD_SIZE][C0_IN_CH];
     static weight_t w_conv0[C0_OUT_CH][C0_IN_CH][K][K];
@@ -290,5 +351,7 @@ int main() {
 
     std::printf("PASS: classifier_top is bit-exact against software golden\n");
     std::printf("This PASS is valid for both csim and C/RTL cosim runs.\n");
+    if(run_ps_team_golden()!=0) return 1;
+    std::printf("PASS: classifier_top is bit-exact against PS-team exported golden\n");
     return 0;
 }

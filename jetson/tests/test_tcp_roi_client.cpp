@@ -20,11 +20,13 @@ void runServer(adas_tcp_roi_server_t* server) {
     assert(adas_tcp_roi_server_accept(server) == ADAS_TCP_ROI_OK);
 
     adas_roi_header_t request_header{};
+    adas_roi_bbox_t request_bbox{};
     std::uint8_t image_payload[ADAS_ROI_IMAGE_PAYLOAD_SIZE]{};
 
     assert(adas_tcp_roi_server_receive_request(
         server,
         &request_header,
+        &request_bbox,
         image_payload
     ) == ADAS_TCP_ROI_OK);
 

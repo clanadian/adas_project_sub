@@ -20,6 +20,9 @@ std::optional<PreparedRoi> RoiPreprocessor::prepare(
     result.frame_id = cropped.frame_id;
     result.roi_id = cropped.roi_id;
     result.object_bbox = cropped.object_bbox;
+    result.objectness = cropped.objectness;
+    result.frame_width = cropped.frame_width;
+    result.frame_height = cropped.frame_height;
 
     // 3. BGR → RGB 변환
     cv::cvtColor(

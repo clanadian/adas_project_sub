@@ -68,6 +68,13 @@ struct CroppedRoi {
     PixelRect crop_window{};
     Padding padding{};
 
+    // 안전 판단(zone/거리)이 Arty PS로 넘어가면서 bbox와 함께 실어 보낸다.
+    // object_bbox는 원본 프레임 좌표라 그대로 쓰지만, 판단 쪽에서 정규화
+    // (x/frame_width 등)하려면 프레임 크기도 같이 있어야 한다.
+    float objectness{0.0F};
+    std::uint32_t frame_width{0};
+    std::uint32_t frame_height{0};
+
     cv::Mat bgr_pixels;
 };
 

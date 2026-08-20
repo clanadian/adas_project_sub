@@ -16,6 +16,9 @@ struct PreparedRoi {
     std::uint32_t roi_id{0};
 
     roi::BoundingBox object_bbox{};
+    float objectness{0.0F};
+    std::uint32_t frame_width{0};
+    std::uint32_t frame_height{0};
     cv::Mat rgb_pixels;
 };
 

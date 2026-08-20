@@ -47,17 +47,25 @@ static int run_client(int fd) {
         .message_type = ADAS_ROI_MESSAGE_REQUEST,
         .frame_id = 55u,
         .roi_id = 4u,
-        .payload_size = ADAS_ROI_IMAGE_PAYLOAD_SIZE
+        .payload_size = ADAS_ROI_REQUEST_PAYLOAD_SIZE
+    };
+
+    const adas_roi_bbox_t bbox = {
+        .x = 10.0F, .y = 20.0F, .width = 30.0F, .height = 40.0F,
+        .objectness = 0.5F, .frame_width = 640u, .frame_height = 360u
     };
 
     uint8_t header_bytes[ADAS_ROI_HEADER_SIZE];
+    uint8_t bbox_bytes[ADAS_ROI_BBOX_PAYLOAD_SIZE];
     uint8_t image[ADAS_ROI_IMAGE_PAYLOAD_SIZE];
     adas_roi_encode_header(header_bytes, &request);
+    adas_roi_encode_bbox(bbox_bytes, &bbox);
     for (size_t i = 0u; i < sizeof(image); ++i) {
         image[i] = (uint8_t)(i & 0xffu);
     }
 
     if (send_exact(fd, header_bytes, sizeof(header_bytes)) != 0
+        || send_exact(fd, bbox_bytes, sizeof(bbox_bytes)) != 0
         || send_exact(fd, image, sizeof(image)) != 0) {
         return 1;
     }

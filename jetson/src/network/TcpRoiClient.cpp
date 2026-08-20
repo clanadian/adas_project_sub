@@ -141,7 +141,7 @@ TcpClientStatus TcpRoiClient::classify(
         ADAS_ROI_MESSAGE_REQUEST,
         roi.frame_id,
         roi.roi_id,
-        ADAS_ROI_IMAGE_PAYLOAD_SIZE
+        ADAS_ROI_REQUEST_PAYLOAD_SIZE
     };
 
     /* C 구조체를 그대로 보내지 않고, 정해진 wire byte 배열로 변환합니다. */
@@ -162,7 +162,34 @@ TcpClientStatus TcpRoiClient::classify(
         return transfer_status;
     }
 
-    /* 2단계: 96x96x3 RGB 픽셀 payload 전체를 전송합니다. */
+    /*
+     * 2단계: bbox 블록(원본 프레임 좌표 + objectness + 프레임 크기)을
+     * 이미지보다 먼저 보냅니다. Arty PS가 안전 판단(zone/거리)을 하려면
+     * crop된 이미지만으로는 부족합니다.
+     */
+    const adas_roi_bbox_t request_bbox = {
+        roi.object_bbox.x,
+        roi.object_bbox.y,
+        roi.object_bbox.width,
+        roi.object_bbox.height,
+        roi.objectness,
+        roi.frame_width,
+        roi.frame_height
+    };
+
+    std::array<std::uint8_t, ADAS_ROI_BBOX_PAYLOAD_SIZE> request_bbox_bytes{};
+    adas_roi_encode_bbox(request_bbox_bytes.data(), &request_bbox);
+
+    transfer_status = sendAll(
+        request_bbox_bytes.data(),
+        request_bbox_bytes.size()
+    );
+
+    if (transfer_status != TcpClientStatus::Ok) {
+        return transfer_status;
+    }
+
+    /* 3단계: 96x96x3 RGB 픽셀 payload 전체를 전송합니다. */
     transfer_status = sendAll(
         continuous_roi.ptr<std::uint8_t>(0),
         ADAS_ROI_IMAGE_PAYLOAD_SIZE
@@ -172,7 +199,7 @@ TcpClientStatus TcpRoiClient::classify(
         return transfer_status;
     }
 
-    /* 3단계: PS가 돌려주는 응답 헤더를 정확히 한 개 받습니다. */
+    /* 4단계: PS가 돌려주는 응답 헤더를 정확히 한 개 받습니다. */
     std::array<std::uint8_t, ADAS_ROI_HEADER_SIZE> response_header_bytes{};
 
     transfer_status = receiveAll(
@@ -202,7 +229,7 @@ TcpClientStatus TcpRoiClient::classify(
         return TcpClientStatus::ProtocolError;
     }
 
-    /* 4단계: 응답 헤더 뒤의 분류 결과 payload를 전부 받습니다. */
+    /* 5단계: 응답 헤더 뒤의 분류 결과 payload를 전부 받습니다. */
     std::array<std::uint8_t, ADAS_ROI_RESULT_PAYLOAD_SIZE> result_bytes{};
 
     transfer_status = receiveAll(

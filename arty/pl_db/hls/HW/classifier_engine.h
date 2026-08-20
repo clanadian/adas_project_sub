@@ -72,6 +72,23 @@ const unsigned P1_OUT_SIZE = 24;
 const unsigned C2_IN_CH  = 32;
 const unsigned C2_OUT_CH = 64;
 const unsigned C2_SIZE   = 24;
+// NOTE on OC_PAR (classifier_engine.cpp, DSP-pack perf rework): pairing OC
+// lanes through one shared DSP48E1 multiply (mac_pair) and doubling OC_PAR
+// is DSP-NEUTRAL for conv1/conv2 (measured: unpacked C*_OC_PAR=8 and
+// packed+doubled C*_OC_PAR=16 both land around the same ~76 DSP for that
+// module - packing exactly buys back the DSP that doubling the lane count
+// would otherwise cost), so both are kept doubled+packed (C1_OC_PAR=16,
+// C2_OC_PAR=16). conv0 is the exception: its unpacked dot27 implementation
+// already lets HLS resource-share down to just 34 DSP for C0_OC_PAR=2
+// (fewer than the 54 raw multiplies you'd naively expect), and packing it
+// disrupts that sharing rather than helping (measured 70 DSP, worse) - so
+// conv0 stays unpacked at the original C0_OC_PAR=2. First attempt (all
+// three packed+doubled) blew LUT to 152% of budget at the HLS csynth
+// estimate stage, but the conv1-only build's ACTUAL ROUTED LUT (24,854)
+// came in at less than half of its own HLS estimate (51,448) - so the
+// original LUT panic was based on an estimate that doesn't hold at the
+// routed stage; DSP is the resource that actually grows during Vivado
+// system integration, not LUT. See classifier_engine.cpp for mac_pair.
 
 // pool2: 24 -> 12  (final PL output size)
 const unsigned P2_OUT_SIZE = 12;

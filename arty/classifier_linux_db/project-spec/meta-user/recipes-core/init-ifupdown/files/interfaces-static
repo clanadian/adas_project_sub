@@ -1,0 +1,45 @@
+# /etc/network/interfaces -- configuration file for ifup(8), ifdown(8)
+
+# The loopback interface
+auto lo
+iface lo inet loopback
+
+# Arty Z7-20 DB - 고정 IP. 10.10.16.0/24 실습망엔 DHCP 서버가 없어서
+# 기본 dhcp 설정으로는 매 부팅 IP를 못 받는다. 인터페이스 이름은 PS
+# ENET MAC 기반이라 이 보드에서는 고정이다 (docs/ARTY_NETWORK_SETUP.md
+# 참고, 케이블을 바꿔 꽂아도 이름은 안 바뀐다 - 링크 속도만 바뀔 수 있다).
+auto enx020000000020
+iface enx020000000020 inet static
+	address 10.10.16.61
+	netmask 255.255.255.0
+	gateway 10.10.16.254
+
+# Wireless interfaces
+iface wlan0 inet dhcp
+	wireless_mode managed
+	wireless_essid any
+	wpa-driver wext
+	wpa-conf /etc/wpa_supplicant.conf
+
+iface atml0 inet dhcp
+
+# Wired or wireless interfaces including predictable names
+auto eth0
+iface eth0 inet dhcp
+iface eth1 inet dhcp
+
+# Busybox ifupdown won't process /en* correctly
+# (enx020000000020 위의 static 항목이 이 mapping보다 먼저 매치되어야 한다)
+auto /en*=eth
+iface eth inet dhcp
+
+# Ethernet/RNDIS gadget (g_ether)
+# ... or on host side, usbnet and random hwaddr
+iface usb0 inet static
+	address 192.168.7.2
+	netmask 255.255.255.0
+	network 192.168.7.0
+	gateway 192.168.7.1
+
+# Bluetooth networking
+iface bnep0 inet dhcp

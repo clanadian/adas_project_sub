@@ -3772,6 +3772,7 @@ CONFIG_Init-manager-sysvinit=y
 CONFIG_adas-classifier=y
 # CONFIG_gpio-demo is not set
 # CONFIG_peekpoke is not set
+CONFIG_ps-classifier-server=y
 CONFIG_ps-db-golden-test=y
 
 #

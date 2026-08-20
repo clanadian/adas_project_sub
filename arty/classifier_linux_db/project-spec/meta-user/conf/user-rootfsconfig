@@ -5,3 +5,4 @@ CONFIG_gpio-demo
 CONFIG_peekpoke
 CONFIG_adas-classifier
 CONFIG_ps-db-golden-test
+CONFIG_ps-classifier-server

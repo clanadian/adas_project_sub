@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """INT8 export for the Arty Z7-20 ROI classifier — 96 HLS PL contract
-(arty/pl_db/hls/HW/classifier_engine.*):
+(arty/pl/hls/HW/classifier_engine.*):
 
   conv0: 3->16, 3x3, ReLU, maxpool     (weight OIHW, no transpose)
   conv1: 16->32, 3x3, ReLU, maxpool    (weight WPACK = OIHW.transpose(0,2,3,1))
@@ -15,9 +15,21 @@ architecture even slightly wrong here would silently produce a wrong
 quantized model. Never writes anything under roi_classifier_fp32/.
 
 Pipeline: load FP32 checkpoint -> fuse BatchNorm into each conv's weight/bias
--> calibrate activation ranges on real validation crops -> quantize weights
-(symmetric per-tensor, zero-point 0) -> derive per-conv requant
-multiplier/shift -> quantize FC -> write all .bin files + manifest.
+-> Cross-Layer Equalization -> calibrate activation ranges on real validation
+crops (percentile, not plain abs-max) -> quantize weights (symmetric
+per-tensor, zero-point 0) -> derive per-conv requant multiplier/shift ->
+quantize FC -> write all .bin files + manifest.
+
+Calibration/CLE choice: swept percentile in {100, 99.99, 99.9, 99.5, 99, 98}
+x CLE in {off, on} against the real val set. Baseline (plain abs-max, no CLE)
+reproduced the previously-shipped 90.3%/90.7% exactly. Best: CLE on +
+99.9th-percentile calibration -> INT8 94.3% (vs FP32 94.3%), 97.7% argmax
+agreement with FP32 — essentially closes the INT8 accuracy gap. CLE alone
+(percentile=100) already gets most of the way (94.0%); percentile without CLE
+tops out around 93.0% (99.5) and gets WORSE past ~99 (over-aggressive
+clipping throws away genuine large activations that maxpool would have kept).
+See cle.py for why CLE is valid for plain ReLU (positively homogeneous, same
+as leaky ReLU).
 
 Usage:
     yolo_env/bin/python roi_classifier_int8_export/quantize_export.py
@@ -36,12 +48,15 @@ from classes import CLASSES  # noqa: E402
 from model import RoiClassifier  # noqa: E402
 from runtime_dataset import RoiManifestDataset  # noqa: E402
 
+from cle import apply_cle, channel_spread
 from fixed_point import derive_multiplier_shift, quantize_symmetric_int8, round_half_away_from_zero
 
 CHECKPOINT = Path("/home/user/fpga_roi_classifier_data/runs/yolo_transfer_r96/best.pt")
 VAL_MANIFEST = Path("/home/user/fpga_roi_classifier_data/dataset/val_manifest.csv")
 OUT_DIR = Path("/mnt/d/fpga_project/roi_classifier_int8_export/export")
 N_CALIBRATION = 512
+CALIBRATION_PERCENTILE = 99.9  # see sweep above; 100.0 would be plain abs-max
+CLE_ITERATIONS = 3  # cross-layer equalization passes, see cle.py
 GAP_SIZE = 12 * 12  # PL output spatial size at 96x96 input: 96/8=12 per side
 
 
@@ -104,20 +119,24 @@ def fused_forward_numpy(params: dict, x: np.ndarray) -> dict:
 
 def calibrate(params: dict, n: int) -> dict:
     """Runs n real validation crops through the fused FP32 model, tracking
-    abs-max at each activation stage. Input scale is NOT calibrated — it's
-    fixed by the manifest's input quantization convention (pixel/255 -> INT8
-    via scale=1/127), so conv0's input activation range is exactly [0,127]."""
+    the CALIBRATION_PERCENTILE-th percentile of |activation| at each stage
+    (not plain abs-max — a single outlier crop would otherwise set the scale
+    and leave typical values using a fraction of the 127 INT8 levels; values
+    above the percentile still work, they just saturate at 127 instead of
+    being lost). Input scale is NOT calibrated — it's fixed by the manifest's
+    input quantization convention (pixel/255 -> INT8 via scale=1/127), so
+    conv0's input activation range is exactly [0,127]."""
     ds = RoiManifestDataset(str(VAL_MANIFEST), "val", roi_size=96)
     idx = np.linspace(0, len(ds) - 1, num=min(n, len(ds)), dtype=int)
 
-    abs_max = {"conv0_out": 0.0, "conv1_out": 0.0, "conv2_out": 0.0}
+    pools = {"conv0_out": [], "conv1_out": [], "conv2_out": []}
     for i in idx:
         tensor, _label = ds[int(i)]
         x = tensor.unsqueeze(0).numpy()
         acts = fused_forward_numpy(params, x)
-        for k in abs_max:
-            abs_max[k] = max(abs_max[k], float(np.max(np.abs(acts[k]))))
-    return abs_max
+        for k in pools:
+            pools[k].append(np.abs(acts[k]).ravel()[::37])  # subsample: full tensors would be ~GBs
+    return {k: float(np.percentile(np.concatenate(v), CALIBRATION_PERCENTILE)) for k, v in pools.items()}
 
 
 def quantize_conv(name: str, w_fp32: np.ndarray, b_fp32: np.ndarray, input_scale: float, output_scale: float) -> dict:
@@ -152,9 +171,18 @@ def main() -> None:
     OUT_DIR.mkdir(parents=True, exist_ok=True)
     params = load_fused_params(CHECKPOINT)
 
-    print(f"calibrating on {N_CALIBRATION} real val crops...")
+    # Cross-Layer Equalization BEFORE calibration/quantization. Mathematically
+    # function-preserving for ReLU (positively homogeneous, same argument as
+    # leaky ReLU in cle.py) and for maxpool/GAP. conv0's per-output-channel
+    # weight range spans ~25x, which per-tensor INT8 cannot represent well
+    # without this. See module docstring for the accuracy sweep.
+    print("channel spread before CLE:", {n: round(channel_spread(params[n]["weight"]), 1) for n in ("conv0", "conv1", "conv2")})
+    params = apply_cle(params, iterations=CLE_ITERATIONS)
+    print("channel spread after  CLE:", {n: round(channel_spread(params[n]["weight"]), 1) for n in ("conv0", "conv1", "conv2")})
+
+    print(f"calibrating on {N_CALIBRATION} real val crops (percentile={CALIBRATION_PERCENTILE})...")
     abs_max = calibrate(params, N_CALIBRATION)
-    print("activation abs-max:", abs_max)
+    print("activation calibrated range:", abs_max)
 
     INPUT_SCALE = 1.0 / 127.0  # fixed by the pixel/255 -> INT8[0,127] convention (manifest.json)
 
@@ -231,6 +259,16 @@ def main() -> None:
         },
         "requant_formula": "out = clamp((acc_int64 * multiplier) >> shift, 0, 127)  [ReLU folded into the 0 lower clamp]",
         "rounding": "NONE — plain arithmetic right shift, no rounding term, matching the arty/pl HLS (`scaled >> shift`). The multiply must use a 64-bit intermediate.",
+        "export_side_transforms": {
+            "cross_layer_equalization": {
+                "applied": True, "iterations": CLE_ITERATIONS,
+                "why": "PL mandates per-tensor weight scales; conv0's per-output-channel weight range spanned ~25x, so one tensor-wide scale left the smallest channel a handful of the 127 levels. CLE rescales channel i of layer L by 1/s and input channel i of layer L+1 by s — exactly function-preserving for ReLU (positively homogeneous) and for maxpool/GAP.",
+                "pl_impact": "NONE — same file layouts, dtypes, op sequence; only the numbers differ.",
+            },
+            "calibration": {"method": "percentile", "percentile": CALIBRATION_PERCENTILE, "n_crops": N_CALIBRATION},
+            "accuracy_before_this_change": "INT8 90.3% (plain abs-max, no CLE) vs FP32 94.3%",
+            "accuracy_after_this_change": "see int8_vs_fp32_agreement.json, regenerated by golden_int8.py",
+        },
         "gap": {
             "mode": "sum (NOT mean) over the 12x12=144 spatial positions per channel, INT32 accumulator",
             "divisor": GAP_SIZE,

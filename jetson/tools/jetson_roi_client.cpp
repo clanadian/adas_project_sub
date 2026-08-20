@@ -1,3 +1,4 @@
+#include "capture/FrameSource.hpp"
 #include "capture/V4L2Capture.hpp"
 #include "control/SafetyDecider.hpp"
 #include "control/SafetyTransmitter.hpp"
@@ -386,6 +387,12 @@ int main(int argc, char** argv) {
     }
     std::cout << "camera: " << capture.format().describe() << '\n';
 
+    // 캡처를 별도 스레드로 돌려 분류 처리와 겹치게 한다 (§젯슨 병목 개선,
+    // capture/FrameSource.hpp 참고). 소비자는 항상 최신 프레임만 받는다.
+    FrameSource frame_source(capture);
+    frame_source.start();
+    std::uint64_t last_frame_seq = 0;
+
     adas::network::TcpRoiClient client;
     if (client.connectToServer(argv[2], port)
         != adas::network::TcpClientStatus::Ok) {
@@ -430,12 +437,12 @@ int main(int argc, char** argv) {
         const Clock::time_point t_frame_begin = Clock::now();
 
         cv::Mat frame;
-        const V4L2Capture::Result capture_status =
-            capture.captureFrame(frame, 1000);
-        if (capture_status == V4L2Capture::Result::Timeout) {
+        const FrameSource::Status capture_status =
+            frame_source.next(frame, last_frame_seq, 1000);
+        if (capture_status == FrameSource::Status::Timeout) {
             continue;
         }
-        if (capture_status != V4L2Capture::Result::Ok) {
+        if (capture_status != FrameSource::Status::Ok) {
             /* 카메라가 죽으면 판단 근거가 없다. 나가기 전에 Stop 을 남긴다. */
             std::cerr << "camera capture stopped or failed\n";
             capture_failed = true;
@@ -682,7 +689,7 @@ int main(int argc, char** argv) {
                     (unsigned long long)safety_stats.immediate_stops);
     }
 
-    capture.requestStop();
+    frame_source.stop();
     client.disconnect();
     return capture_failed ? EXIT_FAILURE : EXIT_SUCCESS;
 }

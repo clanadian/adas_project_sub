@@ -183,6 +183,9 @@ std::optional<CroppedRoi> RoiCropper::crop(
     result.object_bbox = box;
     result.crop_window = crop_window;
     result.padding = padding;
+    result.objectness = candidate.objectness;
+    result.frame_width = static_cast<std::uint32_t>(bgr_frame.cols);
+    result.frame_height = static_cast<std::uint32_t>(bgr_frame.rows);
     result.bgr_pixels = resized_crop;
 
     return result;

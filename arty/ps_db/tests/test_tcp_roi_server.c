@@ -93,7 +93,7 @@ static int run_client(uint16_t server_port) {
         .message_type = ADAS_ROI_MESSAGE_REQUEST,
         .frame_id = 1234u,
         .roi_id = 7u,
-        .payload_size = ADAS_ROI_IMAGE_PAYLOAD_SIZE
+        .payload_size = ADAS_ROI_REQUEST_PAYLOAD_SIZE
     };
 
     uint8_t header_bytes[ADAS_ROI_HEADER_SIZE];
@@ -107,6 +107,22 @@ static int run_client(uint16_t server_port) {
             header_bytes + 10u,
             ADAS_ROI_HEADER_SIZE - 10u
         ) != 0) {
+        close(socket_fd);
+        return 3;
+    }
+
+    const adas_roi_bbox_t request_bbox = {
+        .x = 100.0F,
+        .y = 50.0F,
+        .width = 40.0F,
+        .height = 80.0F,
+        .objectness = 0.9F,
+        .frame_width = 640u,
+        .frame_height = 360u
+    };
+    uint8_t bbox_bytes[ADAS_ROI_BBOX_PAYLOAD_SIZE];
+    adas_roi_encode_bbox(bbox_bytes, &request_bbox);
+    if (send_exact(socket_fd, bbox_bytes, sizeof(bbox_bytes)) != 0) {
         close(socket_fd);
         return 3;
     }
@@ -201,15 +217,19 @@ static void test_fragmented_request_and_response(void) {
     assert(adas_tcp_roi_server_accept(&server) == ADAS_TCP_ROI_OK);
 
     adas_roi_header_t request_header;
+    adas_roi_bbox_t received_bbox;
     uint8_t received_image[ADAS_ROI_IMAGE_PAYLOAD_SIZE];
     assert(adas_tcp_roi_server_receive_request(
         &server,
         &request_header,
+        &received_bbox,
         received_image
     ) == ADAS_TCP_ROI_OK);
 
     assert(request_header.frame_id == 1234u);
     assert(request_header.roi_id == 7u);
+    assert(received_bbox.x == 100.0F);
+    assert(received_bbox.frame_width == 640u);
     for (size_t i = 0; i < sizeof(received_image); ++i) {
         assert(received_image[i] == test_pixel(i));
     }
@@ -245,10 +265,12 @@ static void test_peer_closed_during_receive(void) {
     close(sockets[1]);
 
     adas_roi_header_t request_header;
+    adas_roi_bbox_t bbox;
     uint8_t image_payload[ADAS_ROI_IMAGE_PAYLOAD_SIZE];
     assert(adas_tcp_roi_server_receive_request(
         &server,
         &request_header,
+        &bbox,
         image_payload
     ) == ADAS_TCP_ROI_PEER_CLOSED);
 

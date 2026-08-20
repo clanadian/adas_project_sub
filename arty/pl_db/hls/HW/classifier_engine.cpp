@@ -13,10 +13,10 @@
 // The arithmetic and external interfaces below are unchanged; only the
 // requant multiplier implementation is timing-tuned later in this file.
 // -----------------------------------------------------------------------------
-static const unsigned C0_OC_PAR = 2;
+static const unsigned C0_OC_PAR = 2;   // unpacked - packing hurts conv0, see header note
 static const unsigned CS_IC_PAR = 8;
-static const unsigned C1_OC_PAR = 8;
-static const unsigned C2_OC_PAR = 8;
+static const unsigned C1_OC_PAR = 16;  // doubled + DSP-packed (DSP-neutral)
+static const unsigned C2_OC_PAR = 16;  // doubled + DSP-packed (DSP-neutral)
 
 static inline accum_t reduce8(const accum_t v[CS_IC_PAR]) {
 #pragma HLS INLINE
@@ -29,33 +29,65 @@ static inline accum_t reduce8(const accum_t v[CS_IC_PAR]) {
     return s0123 + s4567;
 }
 
-static inline accum_t dot27(
-    const act_t px[K][K][C0_IN_CH],
-    const weight_t w[K][K][C0_IN_CH]
+// -----------------------------------------------------------------------------
+// mac_pair: two independent signed INT8 x INT8 products that share one
+// operand (`a`), computed with a SINGLE DSP48E1 25x18 multiply instead of
+// two separate multiplies. This is the DSP-packing lever behind the 100 MHz
+// perf rework (see PROJECT header note): every place in this file that used
+// to do "same activation times OC_PAR different weights" one DSP per weight
+// now pairs adjacent OC lanes through this function, roughly halving DSP
+// count per unit of parallelism - which is reinvested as doubled OC_PAR
+// (C0/C1/C2_OC_PAR) so total DSP stays close to the original budget while
+// the OC_BLOCK loop trip count (and so total latency) is roughly halved.
+//
+// DSP48E1 natively computes a signed 25(A) x 18(B) -> 43-bit product. `a`
+// (8-bit) goes on the narrow B port; both weights are packed into one 25-bit
+// A operand:
+//   y = w_hi * 65536 + (w_lo + 128)     // w_lo biased into unsigned [0,255]
+//   p = a * y                          // one DSP48E1 multiply
+// a*(w_lo+128) is always exactly representable in 16 signed bits (range
+// [-32640, 32385] within [-32768, 32767)), so the low 16 bits of the two's
+// complement product p equal that term EXACTLY - no truncation and no carry
+// into the high field. Subtracting it back out before shifting recovers the
+// high term exactly too (no off-by-one rounding, unlike the common variant
+// of this trick that just does a naive p >> 16).
+// -----------------------------------------------------------------------------
+static inline void mac_pair(
+    act_t a, weight_t w_lo, weight_t w_hi,
+    accum_t &prod_lo, accum_t &prod_hi
 ) {
 #pragma HLS INLINE
-#pragma HLS ARRAY_PARTITION variable=px complete dim=0
-#pragma HLS ARRAY_PARTITION variable=w complete dim=0
+    ap_uint<8> w_lo_biased = (ap_uint<8>)((ap_int<9>)w_lo + 128);  // 0..255, exact
+    // Build y by placing w_hi and w_lo_biased into disjoint bit ranges of a
+    // zeroed container instead of computing "w_hi*65536 + w_lo_biased" as an
+    // arithmetic add - the two fields never overlap, so this is pure wiring
+    // (no adder), unlike the '+' version which cost a full 32-bit add per
+    // call. y.range(24,16) both places w_hi's 8 bits AND sign-extends them
+    // into the container's own MSB (bit 24) in one range-assign, since the
+    // source is widened to 9 bits (sign, then the 8 original bits) first.
+    ap_int<25> y = 0;
+    y.range(24, 16) = (ap_int<9>)w_hi;
+    y.range(7, 0)    = w_lo_biased;
 
-    accum_t p[27];
-#pragma HLS ARRAY_PARTITION variable=p complete dim=1
+    // IMPORTANT: multiply the operands at their NATURAL widths (8b x 25b).
+    // Pre-widening both sides to a common type before '*' (e.g. casting both
+    // to ap_int<43>) makes HLS synthesize a 43x43 multiply - several cascaded
+    // DSP48E1s instead of one, and a pile of extra LUTs for the wide
+    // add/shift chain around it. a*y here has a natural 8+25=33-bit product
+    // width, which is exactly what the DSP48E1's 25x18 multiplier covers.
+    ap_int<33> p;
+#pragma HLS BIND_OP variable=p op=mul impl=dsp
+    p = a * y;
 
-DOT27_KY:
-    for (unsigned ky = 0; ky < K; ky++) {
-#pragma HLS UNROLL
-    DOT27_KX:
-        for (unsigned kx = 0; kx < K; kx++) {
-#pragma HLS UNROLL
-        DOT27_IC:
-            for (unsigned ic = 0; ic < C0_IN_CH; ic++) {
-#pragma HLS UNROLL
-                const unsigned idx = (ky * K + kx) * C0_IN_CH + ic;
-                p[idx] = (accum_t)px[ky][kx][ic] *
-                         (accum_t)w[ky][kx][ic];
-            }
-        }
-    }
+    ap_int<16> lo16 = p.range(15, 0);                          // exact a*w_lo_biased
+    ap_int<33> hi33 = (p - (ap_int<33>)lo16) >> 16;             // exact a*w_hi
 
+    prod_lo = (accum_t)lo16 - (accum_t)a * 128;                // remove bias -> a*w_lo
+    prod_hi = (accum_t)hi33;
+}
+
+static inline accum_t reduce27(const accum_t p[27]) {
+#pragma HLS INLINE
     // Balanced 27-term reduction tree.  Keeping the products independent and
     // reducing them as a tree avoids a 27-deep acc += recurrence.
     accum_t s1[14];
@@ -67,20 +99,17 @@ DOT27_KY:
 #pragma HLS ARRAY_PARTITION variable=s3 complete dim=1
 #pragma HLS ARRAY_PARTITION variable=s4 complete dim=1
 
-DOT27_R1:
     for (unsigned i = 0; i < 13; i++) {
 #pragma HLS UNROLL
         s1[i] = p[2*i] + p[2*i + 1];
     }
     s1[13] = p[26];
 
-DOT27_R2:
     for (unsigned i = 0; i < 7; i++) {
 #pragma HLS UNROLL
         s2[i] = s1[2*i] + s1[2*i + 1];
     }
 
-DOT27_R3:
     for (unsigned i = 0; i < 3; i++) {
 #pragma HLS UNROLL
         s3[i] = s2[2*i] + s2[2*i + 1];
@@ -90,6 +119,77 @@ DOT27_R3:
     s4[0] = s3[0] + s3[1];
     s4[1] = s3[2] + s3[3];
     return s4[0] + s4[1];
+}
+
+// Plain (unpacked) 27-tap dot product - one DSP per tap. conv0 uses this
+// directly (reverted to the original timingfix implementation; see header
+// note on why conv0/conv2 stayed unpacked while conv1 did not).
+static inline accum_t dot27(
+    const act_t px[K][K][C0_IN_CH],
+    const weight_t w[K][K][C0_IN_CH]
+) {
+#pragma HLS INLINE
+#pragma HLS ARRAY_PARTITION variable=px complete dim=0
+#pragma HLS ARRAY_PARTITION variable=w complete dim=0
+
+    accum_t p[27];
+#pragma HLS ARRAY_PARTITION variable=p complete dim=1
+
+    for (unsigned ky = 0; ky < K; ky++) {
+#pragma HLS UNROLL
+        for (unsigned kx = 0; kx < K; kx++) {
+#pragma HLS UNROLL
+            for (unsigned ic = 0; ic < C0_IN_CH; ic++) {
+#pragma HLS UNROLL
+                const unsigned idx = (ky * K + kx) * C0_IN_CH + ic;
+                p[idx] = (accum_t)px[ky][kx][ic] * (accum_t)w[ky][kx][ic];
+            }
+        }
+    }
+    return reduce27(p);
+}
+
+struct pair_sum_t { accum_t lo; accum_t hi; };
+
+// Same 27-tap window as dot27(), but computes TWO output channels' sums at
+// once (one DSP48E1 per tap instead of two) via mac_pair. Currently unused
+// (conv0 was reverted to plain dot27() - see header note) but kept in case
+// conv0 gets revisited once LUT budget allows.
+static inline pair_sum_t dot27_pair(
+    const act_t px[K][K][C0_IN_CH],
+    const weight_t w_lo[K][K][C0_IN_CH],
+    const weight_t w_hi[K][K][C0_IN_CH]
+) {
+#pragma HLS INLINE
+#pragma HLS ARRAY_PARTITION variable=px complete dim=0
+#pragma HLS ARRAY_PARTITION variable=w_lo complete dim=0
+#pragma HLS ARRAY_PARTITION variable=w_hi complete dim=0
+
+    accum_t p_lo[27];
+    accum_t p_hi[27];
+#pragma HLS ARRAY_PARTITION variable=p_lo complete dim=1
+#pragma HLS ARRAY_PARTITION variable=p_hi complete dim=1
+
+DOT27P_KY:
+    for (unsigned ky = 0; ky < K; ky++) {
+#pragma HLS UNROLL
+    DOT27P_KX:
+        for (unsigned kx = 0; kx < K; kx++) {
+#pragma HLS UNROLL
+        DOT27P_IC:
+            for (unsigned ic = 0; ic < C0_IN_CH; ic++) {
+#pragma HLS UNROLL
+                const unsigned idx = (ky * K + kx) * C0_IN_CH + ic;
+                mac_pair(px[ky][kx][ic], w_lo[ky][kx][ic], w_hi[ky][kx][ic],
+                         p_lo[idx], p_hi[idx]);
+            }
+        }
+    }
+
+    pair_sum_t result;
+    result.lo = reduce27(p_lo);
+    result.hi = reduce27(p_hi);
+    return result;
 }
 
 // -----------------------------------------------------------------------------
@@ -417,7 +517,7 @@ static void conv1_pool1_fused(
 #pragma HLS ARRAY_PARTITION variable=ifmap cyclic factor=CS_IC_PAR dim=3
 
     static weight_t w_local[C1_OUT_CH][K][K][C1_IN_CH];
-#pragma HLS ARRAY_PARTITION variable=w_local cyclic factor=8 dim=1
+#pragma HLS ARRAY_PARTITION variable=w_local cyclic factor=C1_OC_PAR dim=1
 #pragma HLS ARRAY_PARTITION variable=w_local cyclic factor=CS_IC_PAR dim=4
 
 CS1_WLOAD_OC:
@@ -439,7 +539,7 @@ CS1_WLOAD_OC:
     // of the full 48x48x32=72KB frame.
     static act_t row_buf[2][C1_SIZE][C1_OUT_CH];
 #pragma HLS ARRAY_PARTITION variable=row_buf complete dim=1
-#pragma HLS ARRAY_PARTITION variable=row_buf cyclic factor=8 dim=3
+#pragma HLS ARRAY_PARTITION variable=row_buf cyclic factor=C1_OC_PAR dim=3
 
 CS1_OY:
     for (unsigned oy = 0; oy < C1_SIZE; oy++) {
@@ -483,16 +583,22 @@ CS1_OY:
                                 px[i] = in_bounds ? ifmap[iy][ix][ic] : (act_t)0;
                             }
 
-                        CS1_OC_LANE:
-                            for (unsigned o = 0; o < C1_OC_PAR; o++) {
+                        CS1_OC_PAIR:
+                            for (unsigned op = 0; op < C1_OC_PAR / 2; op++) {
 #pragma HLS UNROLL
+                                const unsigned o_lo = op * 2;
+                                const unsigned o_hi = op * 2 + 1;
                             CS1_IC_LANE:
                                 for (unsigned i = 0; i < CS_IC_PAR; i++) {
 #pragma HLS UNROLL
                                     unsigned ic = ic_base + i;
-                                    partial[o][i] +=
-                                        (accum_t)px[i] *
-                                        (accum_t)w_local[oc_base + o][ky][kx][ic];
+                                    accum_t prod_lo, prod_hi;
+                                    mac_pair(px[i],
+                                             w_local[oc_base + o_lo][ky][kx][ic],
+                                             w_local[oc_base + o_hi][ky][kx][ic],
+                                             prod_lo, prod_hi);
+                                    partial[o_lo][i] += prod_lo;
+                                    partial[o_hi][i] += prod_hi;
                                 }
                             }
                         }
@@ -530,33 +636,94 @@ CS1_OY:
     }
 }
 
-// -----------------------------------------------------------------------------
-// pool2x2: unchanged numerically. Pool latency is already small relative to the
-// convolutions, so v5 spends DSP/BRAM budget on Conv throughput instead.
-// -----------------------------------------------------------------------------
-template<unsigned CH, unsigned IN_SIZE, unsigned OUT_SIZE>
-void pool2x2(
-    const act_t in[IN_SIZE][IN_SIZE][CH],
-    act_t       out[OUT_SIZE][OUT_SIZE][CH]
-) {
-P_OY:
-    for (unsigned oy = 0; oy < OUT_SIZE; oy++) {
-    P_OX:
-        for (unsigned ox = 0; ox < OUT_SIZE; ox++) {
-        P_C:
-            for (unsigned c = 0; c < CH; c++) {
+// Conv2/pool2 fusion removes the last full-frame feature map
+// (24*24*64 = 36 KiB).  Two rows are sufficient for 2x2/stride-2 max pool.
+static void conv2_pool2_fused(
+    const act_t ifmap[C2_SIZE][C2_SIZE][C2_IN_CH],
+    const weight_t w[C2_OUT_CH][K][K][C2_IN_CH],
+    const bias_t b[C2_OUT_CH], const requant_t rq,
+    act_t out[P2_OUT_SIZE][P2_OUT_SIZE][C2_OUT_CH]) {
+#pragma HLS ARRAY_PARTITION variable=ifmap cyclic factor=CS_IC_PAR dim=3
+    static weight_t w_local[C2_OUT_CH][K][K][C2_IN_CH];
+#pragma HLS ARRAY_PARTITION variable=w_local cyclic factor=C2_OC_PAR dim=1
+#pragma HLS ARRAY_PARTITION variable=w_local cyclic factor=CS_IC_PAR dim=4
+C2_WLOAD_OC:
+    for (unsigned oc=0; oc<C2_OUT_CH; ++oc)
+    for (unsigned ky=0; ky<K; ++ky)
+    for (unsigned kx=0; kx<K; ++kx)
+    for (unsigned ic=0; ic<C2_IN_CH; ++ic) {
 #pragma HLS PIPELINE II=1
-                act_t m = in[oy * 2][ox * 2][c];
-            P_KY:
-                for (unsigned py = 0; py < 2; py++) {
-            P_KX:
-                    for (unsigned px = 0; px < 2; px++) {
+        w_local[oc][ky][kx][ic] = w[oc][ky][kx][ic];
+    }
+    static act_t row_buf[2][C2_SIZE][C2_OUT_CH];
+#pragma HLS ARRAY_PARTITION variable=row_buf complete dim=1
+#pragma HLS ARRAY_PARTITION variable=row_buf cyclic factor=C2_OC_PAR dim=3
+C2_OY:
+    for (unsigned oy=0; oy<C2_SIZE; ++oy) {
+        const unsigned br = oy & 1;
+    C2_OX:
+        for (unsigned ox=0; ox<C2_SIZE; ++ox) {
+        C2_OC_BLOCK:
+            for (unsigned ob=0; ob<C2_OUT_CH; ob+=C2_OC_PAR) {
+                accum_t partial[C2_OC_PAR][CS_IC_PAR];
+#pragma HLS ARRAY_PARTITION variable=partial complete dim=0
+                for (unsigned o=0; o<C2_OC_PAR; ++o) {
 #pragma HLS UNROLL
-                        act_t v = in[oy * 2 + py][ox * 2 + px][c];
-                        if (v > m) m = v;
+                    for (unsigned i=0; i<CS_IC_PAR; ++i) {
+#pragma HLS UNROLL
+                        partial[o][i]=0;
                     }
                 }
-                out[oy][ox][c] = m;
+                for (unsigned ky=0; ky<K; ++ky) {
+                    for (unsigned kx=0; kx<K; ++kx) {
+                        const int iy=(int)oy-1+(int)ky;
+                        const int ix=(int)ox-1+(int)kx;
+                        const bool valid=iy>=0 && iy<(int)C2_SIZE && ix>=0 && ix<(int)C2_SIZE;
+                    C2_IC_BLOCK:
+                        for (unsigned ib=0; ib<C2_IN_CH; ib+=CS_IC_PAR) {
+#pragma HLS PIPELINE II=1
+                            act_t px[CS_IC_PAR];
+#pragma HLS ARRAY_PARTITION variable=px complete dim=1
+                            for (unsigned i=0; i<CS_IC_PAR; ++i) {
+#pragma HLS UNROLL
+                                px[i]=valid ? ifmap[iy][ix][ib+i] : (act_t)0;
+                            }
+                            for (unsigned op=0; op<C2_OC_PAR/2; ++op) {
+#pragma HLS UNROLL
+                                const unsigned o_lo = op * 2;
+                                const unsigned o_hi = op * 2 + 1;
+                                for (unsigned i=0; i<CS_IC_PAR; ++i) {
+#pragma HLS UNROLL
+                                    accum_t prod_lo, prod_hi;
+                                    mac_pair(px[i],
+                                             w_local[ob+o_lo][ky][kx][ib+i],
+                                             w_local[ob+o_hi][ky][kx][ib+i],
+                                             prod_lo, prod_hi);
+                                    partial[o_lo][i] += prod_lo;
+                                    partial[o_hi][i] += prod_hi;
+                                }
+                            }
+                        }
+                    }
+                }
+                for (unsigned o=0; o<C2_OC_PAR; ++o) {
+#pragma HLS UNROLL
+                    row_buf[br][ox][ob+o] = requant_relu_c2(
+                        b[ob+o] + reduce8(partial[o]), rq);
+                }
+            }
+        }
+        if (br == 1) {
+            const unsigned py=oy/2;
+            for (unsigned px=0; px<P2_OUT_SIZE; ++px) {
+                for (unsigned c=0; c<C2_OUT_CH; ++c) {
+#pragma HLS PIPELINE II=1
+                    act_t m=row_buf[0][2*px][c];
+                    act_t v=row_buf[0][2*px+1][c]; if (v>m) m=v;
+                    v=row_buf[1][2*px][c]; if (v>m) m=v;
+                    v=row_buf[1][2*px+1][c]; if (v>m) m=v;
+                    out[py][px][c]=m;
+                }
             }
         }
     }
@@ -602,17 +769,13 @@ void classifier_top(
     // straight into pool1.
     static act_t fmap0p[P0_OUT_SIZE][P0_OUT_SIZE][C0_OUT_CH];
     static act_t fmap1p[P1_OUT_SIZE][P1_OUT_SIZE][C1_OUT_CH];
-    static act_t fmap2[C2_SIZE][C2_SIZE][C2_OUT_CH];
 
 #pragma HLS ARRAY_PARTITION variable=fmap0p cyclic factor=4 dim=3
 #pragma HLS ARRAY_PARTITION variable=fmap1p cyclic factor=4 dim=3
-#pragma HLS ARRAY_PARTITION variable=fmap2  cyclic factor=4 dim=3
 
     conv0_pool0_fused(ifmap_padded, w_conv0, b_conv0, rq_conv0, fmap0p);
 
     conv1_pool1_fused(fmap0p, w_conv1, b_conv1, rq_conv1, fmap1p);
 
-    conv_same_parallel<C2_IN_CH, C2_OUT_CH, C2_SIZE, C2_OC_PAR>(
-        fmap1p, w_conv2, b_conv2, rq_conv2, fmap2);
-    pool2x2<C2_OUT_CH, C2_SIZE, P2_OUT_SIZE>(fmap2, out);
+    conv2_pool2_fused(fmap1p, w_conv2, b_conv2, rq_conv2, out);
 }

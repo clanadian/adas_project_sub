@@ -1,5 +1,6 @@
 #define _POSIX_C_SOURCE 200809L
 
+#include "control/ps_safety_bridge.h"
 #include "driver/classifier_device.h"
 #include "model/classifier_model.h"
 #include "network/tcp_roi_server.h"
@@ -421,6 +422,28 @@ int main(int argc, char** argv) {
         }
     }
 
+    /*
+     * 제어 계층(안전 판단 + 터틀봇으로 UART 직접 송신)은 환경변수로 켠다.
+     * ADAS_UART_PORT가 없으면 결선하지 않고 기존과 동일하게 분류만 한다
+     * (Jetson 쪽 jetson_roi_client와 같은 정책). 포트를 지정했는데 못 열면
+     * 조용히 분류만 도는 상태(로봇이 제어 없이 움직임)를 만들지 않도록
+     * 여기서 종료한다.
+     */
+    const char* const uart_port = getenv("ADAS_UART_PORT");
+    ps_safety_handle_t* safety = NULL;
+    if (uart_port != NULL && *uart_port != '\0') {
+        const unsigned long uart_baud = env_ulong("ADAS_UART_BAUD", 115200ul);
+        safety = ps_safety_start(uart_port, (unsigned)uart_baud);
+        if (safety == NULL) {
+            fprintf(stderr, "failed to open UART: %s\n", uart_port);
+            adas_tcp_roi_server_close(&server);
+            adas_classifier_device_close(&device);
+            adas_classifier_model_unload(&model);
+            return EXIT_FAILURE;
+        }
+        printf("safety uart: %s @%lu\n", uart_port, uart_baud);
+    }
+
     printf("classifier server listening on port %u\n", (unsigned)config.port);
     printf("measurement: report_every=%lu csv=%s tcp_nodelay=%s\n",
            report_every,
@@ -448,11 +471,41 @@ int main(int argc, char** argv) {
 
         session_metrics_reset(&metrics);
 
+        /*
+         * frame_id가 바뀌면 그 앞 프레임은 끝난 것이다 - 모아둔 관측을
+         * 한 번에 판단한다(ps_safety_bridge.h 참고). ROI가 0개인
+         * 프레임(Jetson이 요청 자체를 안 보낸 경우)은 여기서 안 잡히지만,
+         * release_ms(시간 조건)가 같이 걸려 있어 안전 쪽으로는 문제없다 -
+         * 팀 확인 완료.
+         */
+        int have_current_frame = 0;
+        uint32_t current_frame_id = 0u;
+
         for (;;) {
             adas_roi_header_t request;
+            adas_roi_bbox_t bbox;
             uint8_t image[ADAS_ROI_IMAGE_PAYLOAD_SIZE];
             if (adas_tcp_roi_server_receive_request(
-                    &server, &request, image) != ADAS_TCP_ROI_OK) break;
+                    &server, &request, &bbox, image) != ADAS_TCP_ROI_OK) {
+                /*
+                 * 연결이 끊기면 판단 자체가 불가능하다. 래치를 거치지
+                 * 않고 곧바로 Stop이다 - "링크가 끊겼으니 기다렸다
+                 * 출발"은 fail-safe로 말이 안 된다. 모아둔 관측은
+                 * 어차피 못 믿으므로 판단하지 않고 버린다.
+                 */
+                if (safety != NULL) ps_safety_force_stop(safety);
+                break;
+            }
+
+            if (safety != NULL) {
+                if (!have_current_frame) {
+                    current_frame_id = request.frame_id;
+                    have_current_frame = 1;
+                } else if (request.frame_id != current_frame_id) {
+                    ps_safety_flush_frame(safety);
+                    current_frame_id = request.frame_id;
+                }
+            }
 
             struct timespec request_start;
             struct timespec request_end;
@@ -463,6 +516,10 @@ int main(int argc, char** argv) {
                 classify_one(image, &device, &model, logits_scale, &timing);
             monotonic_now(&request_end);
             timing.server_us = elapsed_us(&request_start, &request_end);
+
+            if (safety != NULL) {
+                ps_safety_add_observation(safety, &bbox, &result);
+            }
 
             session_metrics_add(
                 &metrics, &timing, &result, &request_start, &request_end);
@@ -493,7 +550,10 @@ int main(int argc, char** argv) {
             }
 
             if (adas_tcp_roi_server_send_result(&server, &request, &result)
-                != ADAS_TCP_ROI_OK) break;
+                != ADAS_TCP_ROI_OK) {
+                if (safety != NULL) ps_safety_force_stop(safety);
+                break;
+            }
         }
 
         /*
@@ -507,6 +567,7 @@ int main(int argc, char** argv) {
     }
 
     if (csv != NULL) fclose(csv);
+    if (safety != NULL) ps_safety_stop(safety);
     adas_tcp_roi_server_close(&server);
     adas_classifier_device_close(&device);
     adas_classifier_model_unload(&model);

@@ -79,13 +79,18 @@ adas_tcp_roi_status_t adas_tcp_roi_server_set_no_delay(
 );
 
 /*
- * 20-byte request header와 96x96x3 RGB UINT8 payload를 모두 수신한다.
+ * 20-byte request header, bbox 블록(원본 프레임 좌표 + objectness + 프레임
+ * 크기), 96x96x3 RGB UINT8 payload를 순서대로 모두 수신한다.
  * TCP 부분 수신을 내부에서 반복 처리한다.
  * image_payload는 ADAS_ROI_IMAGE_PAYLOAD_SIZE 바이트 이상이어야 한다.
+ *
+ * out_bbox는 안전 판단(zone/거리, DetectionAdapter 대응)에 쓰인다 - crop된
+ * image_payload만으로는 화면상 위치·크기를 알 수 없어서 별도로 받는다.
  */
 adas_tcp_roi_status_t adas_tcp_roi_server_receive_request(
     adas_tcp_roi_server_t* server,
     adas_roi_header_t* request_header,
+    adas_roi_bbox_t* out_bbox,
     uint8_t image_payload[ADAS_ROI_IMAGE_PAYLOAD_SIZE]
 );
 

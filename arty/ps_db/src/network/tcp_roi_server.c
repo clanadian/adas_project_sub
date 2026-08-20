@@ -199,10 +199,12 @@ adas_tcp_roi_status_t adas_tcp_roi_server_set_no_delay(
 adas_tcp_roi_status_t adas_tcp_roi_server_receive_request(
     adas_tcp_roi_server_t* server,
     adas_roi_header_t* request_header,
+    adas_roi_bbox_t* out_bbox,
     uint8_t image_payload[ADAS_ROI_IMAGE_PAYLOAD_SIZE]
 ) {
     if (server == NULL
         || request_header == NULL
+        || out_bbox == NULL
         || image_payload == NULL
         || server->client_fd < 0) {
         return ADAS_TCP_ROI_INVALID_ARGUMENT;
@@ -225,6 +227,20 @@ adas_tcp_roi_status_t adas_tcp_roi_server_receive_request(
     if (!adas_roi_is_valid_request_header(request_header)) {
         return ADAS_TCP_ROI_PROTOCOL_ERROR;
     }
+
+    uint8_t bbox_buffer[ADAS_ROI_BBOX_PAYLOAD_SIZE];
+
+    status = receive_all(
+        server->client_fd,
+        bbox_buffer,
+        sizeof(bbox_buffer)
+    );
+
+    if (status != ADAS_TCP_ROI_OK) {
+        return status;
+    }
+
+    adas_roi_decode_bbox(bbox_buffer, out_bbox);
 
     status = receive_all(
         server->client_fd,

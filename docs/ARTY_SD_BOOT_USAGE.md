@@ -97,7 +97,7 @@ report: golden_report
 
 ```sh
 sudo /home/petalinux/ps_classifier_server "*" 5000 /home/petalinux/model 6 1 \
-    1342756158 38 1322019071 35 1920779908 38 2.9190799511495295e-05
+    1467099144 38 1160501223 35 1422046702 38 8.540366656652573e-06
 ```
 
 ```text

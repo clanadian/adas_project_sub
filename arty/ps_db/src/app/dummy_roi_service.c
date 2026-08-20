@@ -26,13 +26,16 @@ adas_dummy_service_status_t adas_dummy_service_handle_one(
     uint8_t image_payload[ADAS_ROI_IMAGE_PAYLOAD_SIZE];
     int8_t pl_input[ADAS_PL_INPUT_SIZE];
     adas_roi_header_t request_header;
+    adas_roi_bbox_t bbox;
 
     const adas_tcp_roi_status_t receive_status =
         adas_tcp_roi_server_receive_request(
             server,
             &request_header,
+            &bbox,
             image_payload
         );
+    (void)bbox;
     if (receive_status != ADAS_TCP_ROI_OK) {
         return convert_network_status(receive_status);
     }

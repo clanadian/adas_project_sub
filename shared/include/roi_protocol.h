@@ -10,7 +10,7 @@
 // 아래 host-side 구조체를 그대로 send()하지 말고 encode 함수를 사용한다.
 
 #define ADAS_ROI_MAGIC             0x524F4931u  // wire bytes: "ROI1"
-#define ADAS_ROI_VERSION           1u
+#define ADAS_ROI_VERSION           2u
 
 #define ADAS_ROI_MESSAGE_REQUEST   1u
 #define ADAS_ROI_MESSAGE_RESPONSE  2u
@@ -20,6 +20,14 @@
 #define ADAS_ROI_CHANNELS           3u
 #define ADAS_ROI_IMAGE_PAYLOAD_SIZE \
     (ADAS_ROI_WIDTH * ADAS_ROI_HEIGHT * ADAS_ROI_CHANNELS)
+
+// v2 - 안전 판단(zone/거리)이 Arty PS로 옮겨가면서, crop된 96x96 이미지만으론
+// bbox 기하 정보가 없어 요청 페이로드 앞에 bbox 블록을 追加했다. crop이 아니라
+// 원본 프레임 픽셀 좌표다 - crop은 마진 때문에 실제보다 가까워 보인다
+// (docs/JETSON_CONTROL_DESIGN.md §2.2 참고).
+#define ADAS_ROI_BBOX_PAYLOAD_SIZE     28u
+#define ADAS_ROI_REQUEST_PAYLOAD_SIZE \
+    (ADAS_ROI_BBOX_PAYLOAD_SIZE + ADAS_ROI_IMAGE_PAYLOAD_SIZE)
 
 #define ADAS_ROI_HEADER_SIZE           20u
 #define ADAS_ROI_RESULT_PAYLOAD_SIZE   12u
@@ -46,6 +54,15 @@
 #define ADAS_ROI_RESULT_CLASS_ID_OFFSET        4u
 #define ADAS_ROI_RESULT_CONFIDENCE_PPM_OFFSET  8u
 
+// 28-byte bbox 블록의 필드 offset. 요청 페이로드에서 이미지 앞에 온다.
+#define ADAS_ROI_BBOX_X_OFFSET              0u
+#define ADAS_ROI_BBOX_Y_OFFSET              4u
+#define ADAS_ROI_BBOX_WIDTH_OFFSET          8u
+#define ADAS_ROI_BBOX_HEIGHT_OFFSET        12u
+#define ADAS_ROI_BBOX_OBJECTNESS_OFFSET    16u
+#define ADAS_ROI_BBOX_FRAME_WIDTH_OFFSET   20u
+#define ADAS_ROI_BBOX_FRAME_HEIGHT_OFFSET  24u
+
 // Host byte order 표현이다. Wire layout과 구조체 padding은 무관하다.
 typedef struct adas_roi_header {
     uint32_t magic;
@@ -62,6 +79,18 @@ typedef struct adas_roi_result {
     uint32_t class_id;
     uint32_t confidence_ppm;
 } adas_roi_result_t;
+
+// Host byte order 표현이다. x/y/width/height는 crop이 아니라 원본 프레임
+// 픽셀 좌표(소수점 보존), objectness는 0.0~1.0.
+typedef struct adas_roi_bbox {
+    float x;
+    float y;
+    float width;
+    float height;
+    float objectness;
+    uint32_t frame_width;
+    uint32_t frame_height;
+} adas_roi_bbox_t;
 
 static inline void adas_roi_write_u16(
     uint8_t* destination,
@@ -89,6 +118,21 @@ static inline uint32_t adas_roi_read_u32(const uint8_t* source) {
     uint32_t network_value = 0;
     memcpy(&network_value, source, sizeof(network_value));
     return ntohl(network_value);
+}
+
+// float 비트 패턴을 uint32로 그대로 옮겨 network byte order로 보낸다.
+// 양쪽 다 IEEE-754 리틀엔디안 호스트라 값 손실 없이 재구성된다.
+static inline void adas_roi_write_f32(uint8_t* destination, float host_value) {
+    uint32_t bits;
+    memcpy(&bits, &host_value, sizeof(bits));
+    adas_roi_write_u32(destination, bits);
+}
+
+static inline float adas_roi_read_f32(const uint8_t* source) {
+    const uint32_t bits = adas_roi_read_u32(source);
+    float value;
+    memcpy(&value, &bits, sizeof(value));
+    return value;
 }
 
 static inline void adas_roi_encode_header(
@@ -151,7 +195,45 @@ static inline int adas_roi_is_valid_request_header(
     return header->magic == ADAS_ROI_MAGIC
         && header->version == ADAS_ROI_VERSION
         && header->message_type == ADAS_ROI_MESSAGE_REQUEST
-        && header->payload_size == ADAS_ROI_IMAGE_PAYLOAD_SIZE;
+        && header->payload_size == ADAS_ROI_REQUEST_PAYLOAD_SIZE;
+}
+
+static inline void adas_roi_encode_bbox(
+    uint8_t destination[ADAS_ROI_BBOX_PAYLOAD_SIZE],
+    const adas_roi_bbox_t* bbox
+) {
+    adas_roi_write_f32(destination + ADAS_ROI_BBOX_X_OFFSET, bbox->x);
+    adas_roi_write_f32(destination + ADAS_ROI_BBOX_Y_OFFSET, bbox->y);
+    adas_roi_write_f32(destination + ADAS_ROI_BBOX_WIDTH_OFFSET, bbox->width);
+    adas_roi_write_f32(destination + ADAS_ROI_BBOX_HEIGHT_OFFSET, bbox->height);
+    adas_roi_write_f32(
+        destination + ADAS_ROI_BBOX_OBJECTNESS_OFFSET, bbox->objectness
+    );
+    adas_roi_write_u32(
+        destination + ADAS_ROI_BBOX_FRAME_WIDTH_OFFSET, bbox->frame_width
+    );
+    adas_roi_write_u32(
+        destination + ADAS_ROI_BBOX_FRAME_HEIGHT_OFFSET, bbox->frame_height
+    );
+}
+
+static inline void adas_roi_decode_bbox(
+    const uint8_t source[ADAS_ROI_BBOX_PAYLOAD_SIZE],
+    adas_roi_bbox_t* bbox
+) {
+    bbox->x = adas_roi_read_f32(source + ADAS_ROI_BBOX_X_OFFSET);
+    bbox->y = adas_roi_read_f32(source + ADAS_ROI_BBOX_Y_OFFSET);
+    bbox->width = adas_roi_read_f32(source + ADAS_ROI_BBOX_WIDTH_OFFSET);
+    bbox->height = adas_roi_read_f32(source + ADAS_ROI_BBOX_HEIGHT_OFFSET);
+    bbox->objectness = adas_roi_read_f32(
+        source + ADAS_ROI_BBOX_OBJECTNESS_OFFSET
+    );
+    bbox->frame_width = adas_roi_read_u32(
+        source + ADAS_ROI_BBOX_FRAME_WIDTH_OFFSET
+    );
+    bbox->frame_height = adas_roi_read_u32(
+        source + ADAS_ROI_BBOX_FRAME_HEIGHT_OFFSET
+    );
 }
 
 static inline int adas_roi_is_valid_response_header(

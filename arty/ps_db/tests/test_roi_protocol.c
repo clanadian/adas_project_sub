@@ -11,7 +11,7 @@ static void test_request_header_wire_bytes_and_round_trip(void) {
         ADAS_ROI_MESSAGE_REQUEST,
         0x01020304u,
         0x11223344u,
-        ADAS_ROI_IMAGE_PAYLOAD_SIZE
+        ADAS_ROI_REQUEST_PAYLOAD_SIZE
     };
 
     uint8_t wire[ADAS_ROI_HEADER_SIZE] = {0};
@@ -22,7 +22,7 @@ static void test_request_header_wire_bytes_and_round_trip(void) {
     assert(wire[2] == 'I');
     assert(wire[3] == '1');
     assert(wire[4] == 0);
-    assert(wire[5] == 1);
+    assert(wire[5] == 2);
     assert(wire[6] == 0);
     assert(wire[7] == 1);
     assert(wire[8] == 0x01);
@@ -87,7 +87,7 @@ static void test_invalid_request_header_is_rejected(void) {
         ADAS_ROI_MESSAGE_REQUEST,
         1u,
         2u,
-        ADAS_ROI_IMAGE_PAYLOAD_SIZE
+        ADAS_ROI_REQUEST_PAYLOAD_SIZE
     };
 
     assert(adas_roi_is_valid_request_header(&header));
@@ -100,10 +100,31 @@ static void test_invalid_request_header_is_rejected(void) {
     assert(!adas_roi_is_valid_request_header(&header));
 }
 
+static void test_bbox_round_trip(void) {
+    const adas_roi_bbox_t input = {
+        123.5F, 45.25F, 80.0F, 96.75F, 0.875F, 640u, 360u
+    };
+
+    uint8_t wire[ADAS_ROI_BBOX_PAYLOAD_SIZE] = {0};
+    adas_roi_encode_bbox(wire, &input);
+
+    adas_roi_bbox_t output = {0.0F, 0.0F, 0.0F, 0.0F, 0.0F, 0u, 0u};
+    adas_roi_decode_bbox(wire, &output);
+
+    assert(output.x == input.x);
+    assert(output.y == input.y);
+    assert(output.width == input.width);
+    assert(output.height == input.height);
+    assert(output.objectness == input.objectness);
+    assert(output.frame_width == input.frame_width);
+    assert(output.frame_height == input.frame_height);
+}
+
 int main(void) {
     test_request_header_wire_bytes_and_round_trip();
     test_response_header_and_result_round_trip();
     test_invalid_request_header_is_rejected();
+    test_bbox_round_trip();
 
     puts("ROI protocol tests passed");
     return 0;
