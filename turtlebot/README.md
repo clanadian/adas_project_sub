@@ -95,7 +95,7 @@ sudo sh -c 'ADAS_UART_PORT=/dev/ttyPS1 ADAS_TCP_NODELAY=1 nohup ps_classifier_se
 | 환경변수 | 빼면 |
 |---|---|
 | `ADAS_UART_PORT=/dev/ttyPS1` | **안전 프레임을 한 개도 안 보낸다.** 분류만 조용히 한다 → 로봇은 계속 STOP |
-| `ADAS_TCP_NODELAY=1` | ROI 왕복이 9.7 ms → **51.6 ms** (5배 느려짐). 이유는 [`docs/PS_TCP_RESPONSE_FIX.md`](docs/PS_TCP_RESPONSE_FIX.md) |
+| `ADAS_TCP_NODELAY=1` | ROI 왕복이 9.7 ms → **51.6 ms** (5배 느려짐). 이유는 [`../docs/PS_TCP_RESPONSE_FIX.md`](../docs/PS_TCP_RESPONSE_FIX.md) |
 
 확인한다. **`server.log` 가 비어 있어도 정상이다** — 블록 버퍼링 때문이다.
 로그 말고 포트를 본다.
@@ -334,7 +334,8 @@ grep -a ':1388' /proc/net/tcp
 |---|---|
 | [`docs/SERVER_START_STOP.md`](docs/SERVER_START_STOP.md) | 기동·종료 상세, 함정 10가지 표 |
 | [`docs/UART_STATUS_REPORT.md`](docs/UART_STATUS_REPORT.md) | UART 점검 근거. "설정이 덜 됐다"는 오진의 실제 원인 |
-| [`docs/PS_TCP_RESPONSE_FIX.md`](docs/PS_TCP_RESPONSE_FIX.md) | Arty 응답 40 ms 지연 원인·수정안 (**아직 미적용**) |
+| [`../docs/PS_TCP_RESPONSE_FIX.md`](../docs/PS_TCP_RESPONSE_FIX.md) | Arty 응답 40 ms 지연 원인·수정안. **저장소 `docs/` 가 정본** — 여기에 사본을 두지 않는다(2026-08-21 에 두 벌이 갈라진 적 있다) |
+| [`../docs/E2E_MEASUREMENT_REPORT.md`](../docs/E2E_MEASUREMENT_REPORT.md) | Jetson→Arty→RPi 엔드투엔드 실측 (FPS·지연·UART·재현 절차) |
 
 ---
 

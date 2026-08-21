@@ -17,8 +17,6 @@
 
 namespace {
 
-constexpr std::uint32_t kDefaultMinConfidencePpm = 600000u;
-
 float ratioFromEnvironment(const char* name, float fallback) {
     const char* const text = std::getenv(name);
     if (text == nullptr || *text == '\0') {
@@ -36,21 +34,6 @@ float ratioFromEnvironment(const char* name, float fallback) {
         return fallback;
     }
     return value;
-}
-
-std::uint32_t minConfidenceFromEnvironment() {
-    const char* const text = std::getenv("ADAS_MIN_CLASS_CONFIDENCE_PPM");
-    if (text == nullptr || *text == '\0') {
-        return kDefaultMinConfidencePpm;
-    }
-
-    errno = 0;
-    char* end = nullptr;
-    const unsigned long value = std::strtoul(text, &end, 10);
-    if (errno != 0 || end == text || *end != '\0' || value > 1000000ul) {
-        return kDefaultMinConfidencePpm;
-    }
-    return static_cast<std::uint32_t>(value);
 }
 
 /*
@@ -78,7 +61,6 @@ struct ps_safety_handle {
     /* AdapterConfig 대응. Jetson 카메라 포맷(640x360)에 고정돼 있다 -
      * Jetson 쪽과 마찬가지로 지금은 런타임에 안 바뀐다. */
     float min_objectness{0.25F};
-    std::uint32_t min_confidence_ppm{kDefaultMinConfidencePpm};
     float frame_width{640.0F};
     float frame_height{360.0F};
 
@@ -87,7 +69,11 @@ struct ps_safety_handle {
      * kMaxDetections를 상한으로 쓴다. */
     safety::DetectionRecord pending[safety::kMaxDetections];
     std::size_t pending_count{0u};
-    bool pending_uncertain_slow{false};
+
+    /* 이번 프레임에 'background 인데 위험 기하' 후보가 있었는가.
+     * flush 에서 일반 판단이 Clear 일 때만 Slow 로 올린다 -
+     * Stop 을 만들거나 HazardLatch 를 열지 않는다. */
+    bool pending_background_slow{false};
 
     safety::State state{safety::State::Stop};
     std::unique_ptr<adas::control::SafetyTransmitter> transmitter;
@@ -106,7 +92,6 @@ ps_safety_handle_t* ps_safety_start(const char* uart_port, unsigned baud) {
     }
 
     handle->judge_config.classes = projectClassMap();
-    handle->min_confidence_ppm = minConfidenceFromEnvironment();
 
     /* 최종 구조에서는 Arty PS가 판단하므로 카메라 의존 gate도 여기서 읽는다. */
     handle->judge_config.sign_slow_height = ratioFromEnvironment(
@@ -138,15 +123,14 @@ ps_safety_handle_t* ps_safety_start(const char* uart_port, unsigned baud) {
     std::fprintf(stderr,
         "safety judge: sign_slow_height=%.3f stop_height=%.3f "
         "slow_height=%.3f zone_x=[%.3f,%.3f] zone_y_min=%.3f "
-        "min_score=%.3f min_class_confidence_ppm=%u\n",
+        "min_score=%.3f\n",
         static_cast<double>(handle->judge_config.sign_slow_height),
         static_cast<double>(handle->judge_config.stop_height),
         static_cast<double>(handle->judge_config.slow_height),
         static_cast<double>(handle->judge_config.zone_x_min),
         static_cast<double>(handle->judge_config.zone_x_max),
         static_cast<double>(handle->judge_config.zone_y_min),
-        static_cast<double>(handle->judge_config.min_score),
-        handle->min_confidence_ppm);
+        static_cast<double>(handle->judge_config.min_score));
 
     safety::HazardLatch::Config latch_config;
     latch_config.release_ms = 200u;
@@ -194,32 +178,21 @@ void ps_safety_add_observation(
     record.y2 = (bbox->y + bbox->height) / handle->frame_height;
     record.score = bbox->objectness;
 
-    const bool classification_ok = result->status == ADAS_ROI_STATUS_OK;
-    const bool usable_class = classification_ok
-        && result->confidence_ppm >= handle->min_confidence_ppm;
-
     /*
-     * 분류는 성공했지만 confidence가 낮으면 car/person/sign으로 확정하지
-     * 않는다. 그렇다고 가까운 큰 후보를 Clear로 버리면 위험하므로, 주행
-     * 경로 안에서 slow_height를 넘는 경우에만 보수적으로 Slow를 만든다.
-     * 이 경로는 Stop을 만들지 않는다. 높은 confidence의 확정 객체만 아래
-     * 일반 SafetyJudge 규칙으로 들어가 Slow/Stop을 결정한다.
+     * confidence 는 제어 판단에서 쓰지 않는다.
+     *
+     * confidence 는 "무엇인가"에 대한 확신이지 "있는가"에 대한 확신이 아니다.
+     * 이걸로 class 를 버리면 같은 대상의 class_id 가 프레임마다 흔들려
+     * HazardLatch::classPresent() 가 "사라졌다"고 오판하고, 표지판이
+     * person 으로 바뀌어 Stop 금지 정책까지 우회된다. 화면 정리는
+     * Jetson 의 ADAS_OVERLAY_MIN_CONFIDENCE_PPM 이 따로 담당한다.
+     * (경위는 docs/CONTROL_LOGIC_REVIEW_2026-08-21.md §8~§10)
      */
-    if (classification_ok && !usable_class) {
-        const float center_x = (record.x1 + record.x2) * 0.5F;
-        const float height = record.y2 - record.y1;
-        if (center_x >= handle->judge_config.zone_x_min
-            && center_x <= handle->judge_config.zone_x_max
-            && record.y2 >= handle->judge_config.zone_y_min
-            && height >= handle->judge_config.slow_height) {
-            handle->pending_uncertain_slow = true;
-        }
-        return;
-    }
+    const bool classification_ok = result->status == ADAS_ROI_STATUS_OK;
 
-    if (!usable_class) {
-        // 통신/가속기 오류처럼 class 자체를 얻지 못한 경우는 기존 fail-safe
-        // 경로를 유지해 person 규칙으로 판단한다.
+    if (!classification_ok) {
+        /* 통신·가속기 오류. class 자체를 못 얻었으므로 person 규칙으로
+         * 보수 처리한다 - 이 경로만 Stop 이 가능하다. */
         record.class_id = handle->judge_config.classes.person;
     } else {
         const std::int32_t class_id =
@@ -227,9 +200,34 @@ void ps_safety_add_observation(
         const bool is_background =
             handle->judge_config.classes.background >= 0
             && class_id == handle->judge_config.classes.background;
+
         if (is_background) {
+            /*
+             * proposal 은 "물체가 있다"고 했는데 분류기는 "background"라고
+             * 한 불일치다. 그냥 버리면 오분류된 실제 장애물이 곧바로 Clear
+             * 가 된다. 그래서 **경로 안의 크고 가까운 후보**에 한해 class
+             * 미확정 장애물로 보고 Slow 까지만 올린다.
+             *
+             * zone_y_min 을 함께 요구하는 이유: 화면 위쪽의 손·배경 조각
+             * 같은 큰 오탐이 Slow 를 만드는 것을 줄인다. 표지판과 달리
+             * 여기서는 대상이 무엇인지 모르므로 car/person 과 같은
+             * ground-plane 조건을 쓴다.
+             */
+            const float center_x = (record.x1 + record.x2) * 0.5F;
+            const float height = record.y2 - record.y1;
+            if (record.score >= handle->min_objectness
+                && center_x >= handle->judge_config.zone_x_min
+                && center_x <= handle->judge_config.zone_x_max
+                && record.y2 >= handle->judge_config.zone_y_min
+                && height >= handle->judge_config.slow_height) {
+                handle->pending_background_slow = true;
+            }
             return;
         }
+
+        /* 성공한 분류는 confidence 와 무관하게 argmax class 를 그대로 쓴다.
+         * 그래야 같은 대상의 class 가 유지돼 래치가 연속되고, 표지판이
+         * 계속 sign 으로 남아 Slow 상한이 지켜진다. */
         record.class_id = class_id;
     }
 
@@ -256,12 +254,14 @@ void ps_safety_flush_frame(ps_safety_handle_t* handle) {
         handle->judge_config,
         now_ms
     );
-    if (handle->pending_uncertain_slow
+    /* background fallback: 일반 판단이 Clear 일 때만 Slow 로 올린다.
+     * Stop 이나 알려진 class 의 판단을 덮어쓰지 않고, 래치도 열지 않는다. */
+    if (handle->pending_background_slow
         && handle->state == safety::State::Clear) {
         handle->state = safety::State::Slow;
     }
     handle->pending_count = 0u;
-    handle->pending_uncertain_slow = false;
+    handle->pending_background_slow = false;
 
     if (handle->transmitter) {
         handle->transmitter->publish(handle->state, now_ms);
@@ -273,7 +273,7 @@ void ps_safety_force_stop(ps_safety_handle_t* handle) {
         return;
     }
     handle->pending_count = 0u;
-    handle->pending_uncertain_slow = false;
+    handle->pending_background_slow = false;
     handle->state = safety::State::Stop;
     if (handle->transmitter) {
         handle->transmitter->publish(handle->state, handle->clock.nowMs());

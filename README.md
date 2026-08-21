@@ -42,9 +42,10 @@ TCP는 persistent connection에서 ROI 한 건씩 요청·응답한다. Multi-by
 network byte order를 사용한다.
 
 Jetson MJPEG는 기본 60% 미만의 분류 bbox를 표시하지 않는다
-(`ADAS_OVERLAY_MIN_CONFIDENCE_PPM`). Arty PS도 60% 이상만 확정 class로
-제어하며, 낮은 confidence의 큰 경로 내 bbox는 미확정 장애물로
-`SLOW`까지만 낸다(`ADAS_MIN_CLASS_CONFIDENCE_PPM`).
+(`ADAS_OVERLAY_MIN_CONFIDENCE_PPM`). 이는 **표시 전용**이다 — Arty PS의
+제어 판단은 confidence를 보지 않고 분류 성공 시 argmax class를 그대로
+쓴다. 분류 결과가 `background`인데 경로 안의 크고 가까운 후보라면
+미확정 장애물로 `SLOW`까지만 낸다.
 
 ## TurtleBot UART
 
@@ -112,7 +113,7 @@ Arty에 접속해 golden 검증 후 분류 서버를 실행한다.
 ```sh
 sudo ps_db_golden_test ~/arty_deploy_v2/model
 
-sudo sh -c 'ADAS_UART_PORT=/dev/ttyPS1 ADAS_MIN_CLASS_CONFIDENCE_PPM=600000 ADAS_TCP_NODELAY=1 nohup ps_classifier_server "*" 5000 /home/petalinux/arty_deploy_v2/model 6 1 1467099144 38 1160501223 35 1422046702 38 8.540366656652573e-06 > /home/petalinux/server.log 2>&1 &'
+sudo sh -c 'ADAS_UART_PORT=/dev/ttyPS1 ADAS_TCP_NODELAY=1 nohup ps_classifier_server "*" 5000 /home/petalinux/arty_deploy_v2/model 6 1 1467099144 38 1160501223 35 1422046702 38 8.540366656652573e-06 > /home/petalinux/server.log 2>&1 &'
 
 grep -a ':1388' /proc/net/tcp && echo LISTEN
 ```

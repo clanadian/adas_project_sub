@@ -136,7 +136,7 @@ Arty 서버가 남긴 직전 세션 요약 (61,710 requests, **errors 0**):
 golden 검증도 통과했다: **9216 bytes bit-exact, accelerator 6,597 µs.**
 
 참고로 어제까지는 이 왕복이 **51.6 ms** 였다. 44 ms 가 TCP 대기였고,
-그 원인과 수정은 [`PS_TCP_RESPONSE_FIX.md`](PS_TCP_RESPONSE_FIX.md) 에 있다.
+그 원인과 수정은 [`PS_TCP_RESPONSE_FIX.md`](../../docs/PS_TCP_RESPONSE_FIX.md) 에 있다.
 
 ---
 

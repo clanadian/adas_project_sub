@@ -72,6 +72,8 @@ bool parse_port(const char* text, std::uint16_t& port) {
  *   ADAS_MEASURE_PROGRESS : 몇 프레임마다 진행 줄을 찍을지 (기본 100, 0=끔)
  *   ADAS_MEASURE_CSV      : ROI 한 건당 한 행을 남길 CSV 경로. 히스토그램과
  *                           백분위수는 이 파일로 오프라인 계산한다.
+ *   ADAS_PROPOSAL_CONFIDENCE : proposal objectness 임계값(기본 0.10).
+ *                      올리면 ROI 수·TCP 전송·PL 연산이 함께 준다.
  *   ADAS_TCP_NODELAY=1    : 분류 socket의 Nagle을 끈다.
  */
 
@@ -102,6 +104,24 @@ unsigned long env_ulong(const char* name, unsigned long fallback) {
 
 bool env_flag(const char* name) {
     return env_ulong(name, 0ul) != 0ul;
+}
+
+/* 0.0~1.0 비율 환경변수. 범위를 벗어나거나 형식이 틀리면 기본값을 쓴다. */
+float env_ratio(const char* name, float fallback) {
+    const char* const text = std::getenv(name);
+    if (text == nullptr || text[0] == 0) {
+        return fallback;
+    }
+    errno = 0;
+    char* end = nullptr;
+    const double value = std::strtod(text, &end);
+    if (errno != 0 || end == text || *end != 0
+        || value < 0.0 || value > 1.0) {
+        std::cerr << "warning: " << name << " ignored (0.0~1.0 only): "
+                  << text << std::endl;
+        return fallback;
+    }
+    return static_cast<float>(value);
 }
 
 /*
@@ -342,6 +362,17 @@ int main(int argc, char** argv) {
     if (!full_frame_mode) {
         proposer_config.engine_path = argv[4];
     }
+    /*
+     * proposal 단계의 objectness 임계값. **불필요한 TCP 전송과 PL 연산을
+     * 줄이는 주체는 여기다** - Arty 의 min_objectness 는 ROI 가 이미
+     * 전송되고 PL 이 6.6 ms 를 쓴 뒤에 검사되므로 부하가 줄지 않는다.
+     *
+     * 기본값은 그대로 0.10 이다. 0.10 / 0.20 / 0.25 를 같은 장면에서
+     * 비교해 **누락이 늘지 않는 가장 높은 값**을 고른 뒤 확정한다
+     * (docs/CONTROL_LOGIC_REVIEW_2026-08-21.md §10.3).
+     */
+    proposer_config.confidence_threshold = env_ratio(
+        "ADAS_PROPOSAL_CONFIDENCE", proposer_config.confidence_threshold);
     const adas::roi::RoiProposer proposer(proposer_config);
     const adas::roi::RoiCropper cropper;
     const adas::preprocess::RoiPreprocessor preprocessor;

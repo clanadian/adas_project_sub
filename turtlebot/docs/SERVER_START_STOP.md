@@ -45,13 +45,12 @@ PASS: 9216 bytes bit-exact, accelerator time=6597 us
 서버를 올린다. **환경변수 두 개를 반드시 붙인다.**
 
 ```sh
-sudo sh -c 'ADAS_UART_PORT=/dev/ttyPS1 ADAS_MIN_CLASS_CONFIDENCE_PPM=600000 ADAS_TCP_NODELAY=1 nohup ps_classifier_server "*" 5000 /home/petalinux/arty_deploy_v2/model 6 1 1467099144 38 1160501223 35 1422046702 38 8.540366656652573e-06 > /home/petalinux/server.log 2>&1 &'
+sudo sh -c 'ADAS_UART_PORT=/dev/ttyPS1 ADAS_TCP_NODELAY=1 nohup ps_classifier_server "*" 5000 /home/petalinux/arty_deploy_v2/model 6 1 1467099144 38 1160501223 35 1422046702 38 8.540366656652573e-06 > /home/petalinux/server.log 2>&1 &'
 ```
 
 | 환경변수 | 빼면 어떻게 되나 |
 |---|---|
 | `ADAS_UART_PORT=/dev/ttyPS1` | **안전 프레임을 한 개도 안 보낸다.** 조용히 분류만 한다 — 로봇은 계속 STOP |
-| `ADAS_MIN_CLASS_CONFIDENCE_PPM=600000` | 생략하면 기본 60%를 사용한다. 값 변경 시 확정 class 제어 임계값이 달라진다 |
 | `ADAS_TCP_NODELAY=1` | ROI 왕복이 9.7 ms → **51.6 ms** 로 5배 느려진다 (이유는 `PS_TCP_RESPONSE_FIX.md`) |
 
 확인한다. **`server.log` 가 비어 있어도 정상이다** — 파일로 리다이렉트하면

@@ -364,9 +364,11 @@ docs/
 
 ## 9. 남은 과제
 
-- **엔드투엔드 FPS 측정** — 파이프라인 동작은 확인했으나 프레임 처리율을
-  아직 수치로 남기지 않았다. 계측과 절차는
-  [`FPS_MEASUREMENT_GUIDE.md`](FPS_MEASUREMENT_GUIDE.md)에 준비되어 있다.
+- ~~**엔드투엔드 FPS 측정**~~ — 2026-08-21 완료. 21.6~25.7 FPS,
+  27~39 ROI/s, 총 197,639 요청 오류 0. 병목은 가속기가 아니라 Jetson
+  proposal 28.2 ms 다. 수치·재현 절차는
+  [`E2E_MEASUREMENT_REPORT.md`](E2E_MEASUREMENT_REPORT.md), 계측 정의는
+  [`FPS_MEASUREMENT_GUIDE.md`](FPS_MEASUREMENT_GUIDE.md).
 - ~~**rootfs 정식화**~~ — 2026-08-20 완료. DB는 서버 바이너리(`ps-classifier-server`
   레시피)가 rootfs에 편입됐고, initramfs에서 영속 ext4(`root=/dev/mmcblk0p2`)로
   전환됐다. 고정 IP도 recipe로 박혀 재부팅해도 유지된다.

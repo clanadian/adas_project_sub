@@ -170,9 +170,10 @@ export의 FC scale에 흡수돼 있으므로 PS에서 다시 나누지 않는다
 - car/person: bbox 위치·높이에 따라 `Clear/Slow/Stop`; Stop은 HazardLatch 적용
 - sign 3종: 경로 안에서 `sign_slow_height` 이상이면 `Slow`, 그 외 `Clear`
 - sign은 개별 정지표지판을 구분할 수 없으므로 `Stop`을 만들지 않고 래치되지 않음
-- 분류 confidence 60% 미만은 class로 확정하지 않음; 경로 안의 큰
-  bbox는 미확정 장애물로 `Slow`, 작거나 경로 밖이면 `Clear`
-- 위 confidence 기본값은 `ADAS_MIN_CLASS_CONFIDENCE_PPM=600000`으로 조정 가능
+- 제어 판단은 분류 confidence를 보지 않음; 분류 성공 시 argmax class를 그대로 사용
+- 분류 결과가 `background`이고 경로 안의 큰 bbox면 미확정 장애물로 `Slow`,
+  작거나 경로 밖이면 `Clear` (`Stop`을 만들지 않고 래치도 열지 않음)
+- confidence 60% 게이트는 Jetson MJPEG **표시 전용**(`ADAS_OVERLAY_MIN_CONFIDENCE_PPM`)
 - 링크·카메라 판단 불능은 래치를 우회해 즉시 `Stop`
 
 ## 9. UART 계약

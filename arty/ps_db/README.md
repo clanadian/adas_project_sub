@@ -91,8 +91,11 @@ GND를 공통으로 연결한다.
 낮은 confidence 결과는 제어에서 제외한다. 아예 class를 받지 못한
 통신·가속기 오류는 기존 fail-safe 규칙을 유지한다.
 
-임계값은 `ADAS_MIN_CLASS_CONFIDENCE_PPM`(`0..1000000`)으로 조정한다.
-잘못된 값은 기본값 `600000`으로 복귀한다.
+제어 판단에는 confidence 임계값이 없다. 분류에 성공하면 confidence와
+무관하게 argmax class를 쓴다 - confidence로 class를 버리면 같은 대상의
+class가 프레임마다 흔들려 `HazardLatch`가 "사라졌다"고 오판하고, 표지판이
+person으로 바뀌어 Stop 금지 정책이 우회된다. 화면 정리는 Jetson의
+`ADAS_OVERLAY_MIN_CONFIDENCE_PPM`이 따로 담당한다.
 
 위치·크기 판단도 최종 판단 주체인 Arty PS에서 환경변수로 조정한다.
 모두 원본 프레임에 대한 `0..1` 비율이며 잘못된 값은 기본값으로 복귀한다.
@@ -111,7 +114,6 @@ GND를 공통으로 연결한다.
 Jetson이 아니라 `ps_classifier_server` 환경에 지정해야 한다.
 
 ```bash
-ADAS_MIN_CLASS_CONFIDENCE_PPM=600000 \
 ADAS_SIGN_SLOW_HEIGHT=0.50 ADAS_SLOW_HEIGHT=0.25 \
 ADAS_STOP_HEIGHT=0.45 ADAS_ZONE_Y_MIN=0.55 \
 ADAS_ZONE_X_MIN=0.25 ADAS_ZONE_X_MAX=0.75 ADAS_MIN_SCORE=0.25 \

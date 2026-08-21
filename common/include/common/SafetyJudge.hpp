@@ -71,12 +71,17 @@ struct JudgeConfig {
     //is 94% of the height and effectively unreachable. A height ratio is not
     //affected by aspect ratio.
     //
-    //0.50 = 180px out of 360px, half the frame height. Lower than the old Stop
-    //gate (0.62) on purpose: the point of a Slow is to react while still
-    //approaching, and an early Slow costs little. This number is a property of
-    //the camera mount, so the default here is only a starting point -
-    //jetson_roi_client overrides it via ADAS_SIGN_SLOW_HEIGHT, and that is
-    //where tuning happens.
+    //0.50 = 180px out of 360px, half the frame height. The point of a Slow is
+    //to react while still approaching, and an early Slow costs little, so this
+    //sits deliberately below the car/person Stop gate (stop_height 0.45 is a
+    //different axis - it is gated on the ground plane as well, which signs are
+    //not).
+    //
+    //This number is a property of the camera mount, so the default here is only
+    //a starting point. It is overridden by the **Arty PS** via
+    //ADAS_SIGN_SLOW_HEIGHT (arty/ps_db/src/control/ps_safety_bridge.cpp), which
+    //is where tuning happens - the judgement layer runs on the PS, not on the
+    //Jetson.
     float sign_slow_height = 0.50f;
 
     //이 점수 미만은 무시한다. decode 단계의 threshold와 별개로,
