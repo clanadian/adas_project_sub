@@ -85,17 +85,17 @@ UART0(`/dev/ttyPS0`)은 Linux 콘솔이다. UART1은 EMIO를 거쳐
 JA1(`Y18`, TXD)·JA2(`Y19`, RXD)로 나온다. Raspberry Pi와 TX/RX를 교차하고
 GND를 공통으로 연결한다.
 
-안전 판단은 기본 `600000`(60%) 이상의 confidence만 해당 class로
-확정한다. 이보다 낮지만 bbox가 주행 경로 안에 있고 `slow_height`를
-넘으면 미확정 장애물로 보고 `SLOW`까지만 낸다. 작거나 경로 밖인
-낮은 confidence 결과는 제어에서 제외한다. 아예 class를 받지 못한
-통신·가속기 오류는 기존 fail-safe 규칙을 유지한다.
-
 제어 판단에는 confidence 임계값이 없다. 분류에 성공하면 confidence와
 무관하게 argmax class를 쓴다 - confidence로 class를 버리면 같은 대상의
 class가 프레임마다 흔들려 `HazardLatch`가 "사라졌다"고 오판하고, 표지판이
 person으로 바뀌어 Stop 금지 정책이 우회된다. 화면 정리는 Jetson의
 `ADAS_OVERLAY_MIN_CONFIDENCE_PPM`이 따로 담당한다.
+
+분류 결과가 `background`여도 proposal score가 `ADAS_MIN_SCORE` 이상이고
+bbox가 주행 경로 안에 있으며 `slow_height`를 넘으면 미확정 장애물로
+`SLOW`까지만 낸다. 이 fallback은 `STOP`이나 정지 latch를 만들지 않는다.
+통신·가속기 오류처럼 class 자체를 받지 못한 경우에는 기존 person
+fail-safe 규칙을 적용한다.
 
 위치·크기 판단도 최종 판단 주체인 Arty PS에서 환경변수로 조정한다.
 모두 원본 프레임에 대한 `0..1` 비율이며 잘못된 값은 기본값으로 복귀한다.

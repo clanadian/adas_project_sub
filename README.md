@@ -67,11 +67,10 @@ UART 송신 코드가 없다.
 | --- | --- | --- |
 | RPi (TurtleBot) | `ssh ubuntu@10.10.16.200` | `ubuntu` |
 | Jetson | `ssh -J ubuntu@10.10.16.200 jetson@192.168.100.2` | `123456` |
-| Arty DB | `ssh petalinux@10.10.16.61` | `123456` |
+| Arty DB | `ssh -J ubuntu@10.10.16.200 petalinux@10.10.16.61` | `123456` |
 
-Jetson은 RPi 뒤 사설망(`192.168.100.0/24`)에 있어서 RPi를 거쳐야 붙는다
-(`-J`가 그 경유지). Arty DB는 실습망(`10.10.16.0/24`)에 바로 있어서 경유
-없이 붙는다.
+Jetson은 RPi 뒤 사설망(`192.168.100.0/24`)에 있고 Arty도 현재 배선에서는
+RPi가 라우팅하므로 둘 다 RPi를 거쳐 접속한다(`-J`가 경유지다).
 
 ## Repository
 
@@ -98,7 +97,18 @@ Jetson은 RPi 뒤 사설망(`192.168.100.0/24`)에 있어서 RPi를 거쳐야 �
 | [`docs/ARTY_SD_BOOT_USAGE.md`](docs/ARTY_SD_BOOT_USAGE.md) | 최종 DB SD 부팅, Jetson 연결 사용법 |
 | [`docs/ARTY_NETWORK_SETUP.md`](docs/ARTY_NETWORK_SETUP.md) | Arty 네트워크 인터페이스 설정 |
 | [`docs/DB_EB_VERIFICATION_SUMMARY.md`](docs/DB_EB_VERIFICATION_SUMMARY.md) | DB/EB 검증 결과 비교 |
+| [`docs/E2E_MEASUREMENT_REPORT.md`](docs/E2E_MEASUREMENT_REPORT.md) | Jetson→Arty→TurtleBot 지연·처리량 실측 |
+| [`docs/CONTROL_LOGIC_REVIEW_2026-08-21.md`](docs/CONTROL_LOGIC_REVIEW_2026-08-21.md) | confidence/background 안전 판단 검토와 반영 결과 |
+| [`docs/SHUTDOWN_LOG_2026-08-21_1630.md`](docs/SHUTDOWN_LOG_2026-08-21_1630.md) | 배포 전 종료 로그와 성능 기준선 |
 | [`docs/contracts/PL_HANDOFF_CHECKLIST.md`](docs/contracts/PL_HANDOFF_CHECKLIST.md) | PL 인계 산출물 인수 기준 |
+
+## Current measurement
+
+2026-08-21 배포 전 장시간 세션(70,095프레임, 70,719 ROI)은 오류 없이
+완료됐다. 중앙값은 proposal `17.35 ms`, Jetson↔Arty TCP 왕복 `8.24 ms`,
+Arty PL 실행 `6.62 ms`였고 결과 갱신 속도는 `28.58 FPS`였다. PL 실행
+시간은 이전 측정과 같지만 Jetson proposal과 PS 전·후처리가 빨라졌으므로,
+최신 배포본도 같은 조건에서 다시 측정해 재현 여부를 확인한다.
 
 ## Start and stop
 
@@ -123,6 +133,10 @@ Jetson에서 ROI 클라이언트와 MJPEG 서버를 실행한다.
 ```bash
 setsid nohup ~/start_adas.sh > /tmp/jetson.log 2>&1 < /dev/null &
 ```
+
+proposal objectness 임계값은 `ADAS_PROPOSAL_CONFIDENCE`로 조정한다(기본
+`0.10`). `0.10 / 0.20 / 0.25`를 같은 장면에서 비교하고 실제 객체 누락이
+늘지 않는 가장 높은 값을 선택한다.
 
 TurtleBot RPi에서 로봇 bringup, UART 수신, 조종 중재와 통합 UI를 실행한다.
 

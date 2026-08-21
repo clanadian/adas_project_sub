@@ -47,6 +47,11 @@ models/proposal/DEPLOY_SPEC.md
 
 TensorRT engine은 Jetson Nano에서 생성하며 저장소에는 커밋하지 않는다.
 
+proposal objectness 임계값은 `ADAS_PROPOSAL_CONFIDENCE` 환경변수로
+조정한다(기본 `0.10`, 허용 범위 `0.0..1.0`). 이 값은 ROI 생성 단계에
+적용되므로 올리면 불필요한 TCP 전송과 PL 연산도 함께 줄지만 실제 객체
+후보를 놓칠 수 있다. `0.10 / 0.20 / 0.25`를 같은 장면에서 비교해 확정한다.
+
 ## TCP input/output
 
 ```text
@@ -154,3 +159,7 @@ PL 분류, Arty 안전 판단은 건드리지 않는다. 실험 시 다음 환�
 ADAS_OVERLAY_MIN_CONFIDENCE_PPM=600000 \
 ./jetson/build/jetson_roi_client /dev/video0 <PS_IP> 5000 <engine> 8080
 ```
+
+proposal와 overlay 임계값은 서로 독립적이다. proposal 임계값은 ROI 생성
+여부를 바꾸고, overlay 임계값은 분류가 끝난 결과를 화면에 그릴지만 정한다.
+Arty의 제어 판단은 overlay 임계값의 영향을 받지 않는다.
