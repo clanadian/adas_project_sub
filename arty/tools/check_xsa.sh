@@ -3,7 +3,7 @@
 #
 #   arty/tools/check_xsa.sh ~/Downloads/classifier_z7.xsa
 #
-# 기준값 출처: arty/pl_eb/system/arty_ps7_preset_z7_20.tcl (보드에서 부팅 검증됨)
+# 기준값 출처: 최종 DB XSA(보드 부팅 검증) 및 Arty Z7-20 물리 사양
 # 판정 기준 문서: docs/contracts/PL_HANDOFF_CHECKLIST.md §1
 
 set -uo pipefail

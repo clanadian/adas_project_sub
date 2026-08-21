@@ -34,7 +34,7 @@ DONE LED도 켜지지 않는다. 같은 보드에서 EB XSA(50 MHz 설정)는 �
 ### 2.3 DDR 물리 구성 불일치
 
 클럭을 수정한 다음 XSA에서 DDR 설정이 Zybo Z7-20 값(32비트 버스)으로 바뀌어 있었다.
-EB 팀이 남긴 `arty/pl_eb/system/arty_ps7_preset_z7_20.tcl` 머리말에 Arty Z7-20의
+EB 팀이 남긴 PS7 프리셋(현재 Git 태그 `eb-comparison-final`에 보존) 머말에 Arty Z7-20의
 실제 구성이 명시되어 있다.
 
 ```text
@@ -108,8 +108,9 @@ class_id는 1(car)·2(person)이 주로 나왔고 4(sign_prohibition)도 간헐�
 - ~~**EB PS 가속기 코드가 아직 DB 주소맵이다.**~~ → 해결. EB PS 를 3-IP 주소맵과
   6-op 시퀀서로 다시 구현했다(커널 드라이버 ABI 2, `compatible` 도 분리).
   bias 가 레지스터가 아니라 DDR 인 것과 ping-pong 활성 버퍼가 DB 와의 핵심
-  차이다. 남은 것은 **실보드 검증**이며, `ps_eb_golden_test` 가 op 6개를
-  하나씩 돌려 어디서 갈리는지 짚도록 만들어 두었다 (`arty/ps_eb/README.md`).
+  차이다. 당시 `ps_eb_golden_test`로 op 6개를 단계별 검증했고,
+  비교 결과는 `DB_EB_VERIFICATION_SUMMARY.md`에 보존했다. 관련 소스는
+  Git 태그 `eb-comparison-final`에서 복원할 수 있다.
 - **`ps_classifier_server`가 아직 rootfs 레시피에 없다.** 오늘은 1회성 검증을 위해
   `arty/classifier_linux_db/build/.../ps-db-golden-test`가 생성한 툴체인 파일을
   재사용해 수동 크로스컴파일 후 `scp`로 올렸다. 정식 배포 전에

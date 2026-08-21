@@ -85,6 +85,42 @@ UART0(`/dev/ttyPS0`)은 Linux 콘솔이다. UART1은 EMIO를 거쳐
 JA1(`Y18`, TXD)·JA2(`Y19`, RXD)로 나온다. Raspberry Pi와 TX/RX를 교차하고
 GND를 공통으로 연결한다.
 
+안전 판단은 기본 `600000`(60%) 이상의 confidence만 해당 class로
+확정한다. 이보다 낮지만 bbox가 주행 경로 안에 있고 `slow_height`를
+넘으면 미확정 장애물로 보고 `SLOW`까지만 낸다. 작거나 경로 밖인
+낮은 confidence 결과는 제어에서 제외한다. 아예 class를 받지 못한
+통신·가속기 오류는 기존 fail-safe 규칙을 유지한다.
+
+임계값은 `ADAS_MIN_CLASS_CONFIDENCE_PPM`(`0..1000000`)으로 조정한다.
+잘못된 값은 기본값 `600000`으로 복귀한다.
+
+위치·크기 판단도 최종 판단 주체인 Arty PS에서 환경변수로 조정한다.
+모두 원본 프레임에 대한 `0..1` 비율이며 잘못된 값은 기본값으로 복귀한다.
+
+| 환경변수 | 기본값 | 의미 |
+| --- | ---: | --- |
+| `ADAS_SIGN_SLOW_HEIGHT` | `0.50` | 표지판 SLOW 최소 bbox 높이 |
+| `ADAS_SLOW_HEIGHT` | `0.25` | 자동차·사람 SLOW 최소 높이 |
+| `ADAS_STOP_HEIGHT` | `0.45` | 자동차·사람 STOP 최소 높이 |
+| `ADAS_ZONE_Y_MIN` | `0.55` | 자동차·사람 bbox 아랫변의 최소 위치 |
+| `ADAS_ZONE_X_MIN` | `0.25` | 주행 영역 왼쪽 경계 |
+| `ADAS_ZONE_X_MAX` | `0.75` | 주행 영역 오른쪽 경계 |
+| `ADAS_MIN_SCORE` | `0.25` | proposal objectness 최소값 |
+
+실행 로그의 `safety judge:` 한 줄에 실제 적용값이 출력된다. 이 설정들은
+Jetson이 아니라 `ps_classifier_server` 환경에 지정해야 한다.
+
+```bash
+ADAS_MIN_CLASS_CONFIDENCE_PPM=600000 \
+ADAS_SIGN_SLOW_HEIGHT=0.50 ADAS_SLOW_HEIGHT=0.25 \
+ADAS_STOP_HEIGHT=0.45 ADAS_ZONE_Y_MIN=0.55 \
+ADAS_ZONE_X_MIN=0.25 ADAS_ZONE_X_MAX=0.75 ADAS_MIN_SCORE=0.25 \
+ADAS_UART_PORT=/dev/ttyPS1 ADAS_UART_BAUD=115200 \
+./arty/ps_db/build/ps_classifier_server "*" 5000 <model-dir> \
+  6 1 <rq0-mul> <rq0-shift> <rq1-mul> <rq1-shift> \
+  <rq2-mul> <rq2-shift> <logits-scale>
+```
+
 배포용 INT8 모델과 golden은 다음 위치에 있다.
 
 ```text

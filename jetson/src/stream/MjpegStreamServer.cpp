@@ -59,8 +59,19 @@ bool writeAll(int fd, const char* data, std::size_t len) {
     return true;
 }
 
-void drawOverlays(cv::Mat& canvas, const std::vector<RoiOverlay>& overlays) {
+void drawOverlays(
+    cv::Mat& canvas,
+    const std::vector<RoiOverlay>& overlays,
+    std::uint32_t min_confidence_ppm
+) {
     for (const auto& ov : overlays) {
+        // 낮은 confidence의 성공 결과는 화면만 복잡하게 하고, 손 같은
+        // hard negative 오분류를 확정 객체처럼 보이게 한다. 전송·분류·
+        // 안전 판단은 이미 끝난 뒤이므로 여기서 거르는 것은 표시 전용이다.
+        if (ov.status == 0 && ov.confidence_ppm < min_confidence_ppm) {
+            continue;
+        }
+
         cv::Rect box(static_cast<int>(ov.bbox.x), static_cast<int>(ov.bbox.y),
                      static_cast<int>(ov.bbox.width), static_cast<int>(ov.bbox.height));
         box &= cv::Rect(0, 0, canvas.cols, canvas.rows);
@@ -208,7 +219,7 @@ void MjpegStreamServer::encoderLoop() {
             overlays = latest_overlays_;
         }
 
-        drawOverlays(frame, overlays);
+        drawOverlays(frame, overlays, config_.overlay_min_confidence_ppm);
 
         std::vector<std::uint8_t> jpeg_buffer;
         if (!cv::imencode(".jpg", frame, jpeg_buffer, jpeg_params)) {

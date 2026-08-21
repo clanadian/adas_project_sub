@@ -60,6 +60,10 @@ start cmd_vel_arbiter "[c]md_vel_arbiter" ros2 run rpi_adas_demo cmd_vel_arbiter
     --ros-args -p no_joy_mode:=true
 start button_teleop "[b]utton_teleop" python3 /home/ubuntu/button_teleop.py
 
+# 5) 통합 UI 페이지 (http://<RPi>:8090). 영상은 젯슨에서 직접 받으므로
+#    이 노드가 죽어도 주행 제어에는 영향이 없다.
+start ui_server "[u]i_server" python3 /home/ubuntu/ui_server.py
+
 sleep 3
 log "노드 목록:"
 ros2 node list 2>/dev/null | sed 's/^/  /'

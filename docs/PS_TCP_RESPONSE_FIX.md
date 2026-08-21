@@ -1,6 +1,6 @@
 # Arty PS — 응답 전송 40 ms 지연 수정 요청
 
-작성 2026-08-20 · 대상 `arty/ps_db/src/network/tcp_roi_server.c` (ps_eb 동일)
+작성 2026-08-20 · 대상 `arty/ps_db/src/network/tcp_roi_server.c`
 · 저장소 `clanadian/adas_project_sub` @ `9d2e13c`
 
 ---
@@ -206,16 +206,11 @@ ADAS_TCP_NODELAY=1 ADAS_UART_PORT=/dev/ttyPS1 ./ps_classifier_server ...
 - `ADAS_ROI_RESULT_PAYLOAD_SIZE` 는 `shared/include/roi_protocol.h` 에서
   12 로 고정이므로 버퍼 크기는 컴파일 타임에 결정된다.
 
-### ps_eb 도 같이
+### EB 비교 구현
 
-`arty/ps_eb/src/network/tcp_roi_server.c` 의 `adas_tcp_roi_server_send_result()`
-가 **완전히 같은 2회 write 구조**다. DB 를 쓰기로 했더라도, EB 로 재측정할 일이
-남아 있으면(캘리브레이션 이식 등) 같이 고쳐 두는 게 맞다. 안 고치면 EB 쪽 수치가
-40 ms 씩 부풀어 **PL 성능 비교가 왜곡된다** — 실제로 이번 측정 전까지 그랬다.
-
-> **적용 메모 (2026-08-20).** DB 쪽은 이 문서대로 반영·유닛 테스트
-> 통과 확인했다. EB 는 2026-08-20 결정으로 더 이상 안 쓰기로 해서 반영하지
-> 않았다 — 원본 2회 write 구조 그대로다.
+EB 백엔드는 폐기했고 원본 소스는 Git 태그
+`eb-comparison-final`에 보존했다. 현재 트리의 응답 최적화·테스트
+대상은 DB 백엔드 하나다.
 
 ---
 
@@ -316,7 +311,7 @@ sudo tcpdump -i enx00e04c680398 -nn -ttt 'tcp port 5000' -c 120
 ## 9. 체크리스트
 
 - [x] `arty/ps_db/src/network/tcp_roi_server.c` — `send_result` 를 1회 write 로
-- [ ] `arty/ps_eb/src/network/tcp_roi_server.c` — 동일 수정 (2026-08-20, eb 폐기로 보류)
+- [x] EB 백엔드 폐기 및 `eb-comparison-final` 태그로 보존
 - [x] 단위 테스트 통과 확인 (`test_tcp_roi_server`)
 - [ ] 보드에 재배포 후 tcpdump 로 40 ms 공백 소멸 확인 (§7.1)
 - [ ] 젯슨 요약에서 RTT median 10 ms 대 확인 (§7.2)

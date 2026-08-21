@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # SD 카드의 파티션 테이블과 FAT 구조를 덤프한다.
 #   sudo ./inspect_sd.sh /dev/sdd
-# db 카드와 eb 카드를 각각 꽂고 한 번씩 돌려서 출력을 비교한다.
+# 최종 DB SD 카드의 파티션·FAT 구조를 점검한다.
 
 set -uo pipefail
 DISK="${1:-/dev/sdd}"

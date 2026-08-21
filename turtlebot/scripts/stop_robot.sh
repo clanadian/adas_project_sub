@@ -12,7 +12,7 @@
 source /opt/ros/humble/setup.bash
 source /home/ubuntu/ros2_ws/install/setup.bash
 
-PATTERN='turtlebot3_ros|robot_nolidar|robot_state_publisher|cmd_vel_arbiter|uart_safety_receiver|joy_node|button_teleop'
+PATTERN='ui_server|turtlebot3_ros|robot_nolidar|robot_state_publisher|cmd_vel_arbiter|uart_safety_receiver|joy_node|button_teleop'
 
 log() { echo "[$(date +%H:%M:%S)] $*"; }
 
@@ -34,7 +34,7 @@ timeout 10 ros2 service call /motor_power std_srvs/srv/SetBool \
     "{data: false}" 2>&1 | grep -E 'success|response' | tail -1
 
 # 4) 나머지 노드.
-for name in cmd_vel_arbiter uart_safety_receiver joy_node; do
+for name in ui_server cmd_vel_arbiter uart_safety_receiver joy_node; do
     log "$name 정지"
     pkill -f "$name" 2>/dev/null
 done

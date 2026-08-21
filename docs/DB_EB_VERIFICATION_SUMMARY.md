@@ -1,5 +1,8 @@
 # DB / EB 검증 결과 비교
 
+EB 구현은 비교 완료 후 활성 트리에서 제거했다. 당시 소스·모델·
+PetaLinux 프로젝트는 Git 태그 `eb-comparison-final`에서 복원할 수 있다.
+
 DB 클럭·DDR 진단 과정은 [`DB_ARTY_BRINGUP_REPORT.md`](DB_ARTY_BRINGUP_REPORT.md),
 사용법은 [`ARTY_SD_BOOT_USAGE.md`](ARTY_SD_BOOT_USAGE.md) 참고.
 

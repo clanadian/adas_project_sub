@@ -44,14 +44,11 @@ target_compile_options(ps_dummy_server PRIVATE -Wall -Wextra -Wpedantic)
 # ---------------------------------------------------------------------------
 # ps_classifier_server.c(C)에서 쓰기 위한 C++ 계층. common/은 순수 판단
 # 로직(SafetyJudge/HazardLatch, OpenCV 등 외부 의존 없음)만 직접 쓰고,
-# jetson/include/control/의 SafetyTransmitter·UartPort는 Jetson과 동일한
-# POSIX termios 구현이라 그대로 재사용한다(DetectionAdapter/SafetyDecider는
-# RoiObservation을 통해 OpenCV까지 딸려오는 Jetson 전용 접착 타입이라 안
-# 쓴다 - ps_safety_bridge.cpp 참고).
+# UART 송신 구현도 최종 소유 주체인 Arty PS 아래에 둔다.
 add_library(adas_ps_safety STATIC
     src/control/ps_safety_bridge.cpp
-    ../../jetson/src/control/SafetyTransmitter.cpp
-    ../../jetson/src/control/UartPort.cpp
+    src/control/SafetyTransmitter.cpp
+    src/control/UartPort.cpp
     ../../common/src/SafetyJudge.cpp
     ../../common/src/SafetyHazardLatch.cpp
     ../../common/src/UartFrame.cpp

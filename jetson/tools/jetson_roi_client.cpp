@@ -1,8 +1,5 @@
 #include "capture/FrameSource.hpp"
 #include "capture/V4L2Capture.hpp"
-#include "control/SafetyDecider.hpp"
-#include "control/SafetyTransmitter.hpp"
-#include "control/UartPort.hpp"
 #include "metrics/LatencyStats.hpp"
 #include "network/TcpRoiClient.hpp"
 #include "preprocess/RoiPreprocessor.hpp"
@@ -10,6 +7,7 @@
 #include "roi/RoiProposer.hpp"
 #include "stream/MjpegStreamServer.hpp"
 
+#include <algorithm>
 #include <atomic>
 #include <chrono>
 #include <csignal>
@@ -22,7 +20,6 @@
 #include <map>
 #include <memory>
 #include <string>
-#include <thread>
 #include <vector>
 
 namespace {
@@ -85,6 +82,12 @@ std::int64_t elapsed_us(Clock::time_point start, Clock::time_point end) {
         .count();
 }
 
+std::uint64_t monotonic_ms() {
+    return static_cast<std::uint64_t>(
+        std::chrono::duration_cast<std::chrono::milliseconds>(
+            Clock::now().time_since_epoch()).count());
+}
+
 unsigned long env_ulong(const char* name, unsigned long fallback) {
     const char* const text = std::getenv(name);
     if (text == nullptr || *text == '\0') {
@@ -102,93 +105,10 @@ bool env_flag(const char* name) {
 }
 
 /*
- * For the judge thresholds. All of them are normalized 0..1 ratios, so a
- * value outside that range falls back - a single typo that swings a gate
- * fully open or shut is hard to trace back on the real board.
- */
-float env_ratio(const char* name, float fallback) {
-    const char* const text = std::getenv(name);
-    if (text == nullptr || *text == '\0') {
-        return fallback;
-    }
-    try {
-        const float value = std::stof(text);
-        if (!(value >= 0.0F) || !(value <= 1.0F)) {
-            std::cerr << "warning: " << name << " out of range [0,1], using "
-                      << fallback << '\n';
-            return fallback;
-        }
-        return value;
-    } catch (...) {
-        std::cerr << "warning: " << name << " is not a number, using "
-                  << fallback << '\n';
-        return fallback;
-    }
-}
-
-/*
- * ---------------------------------------------------------------------------
- * 제어 계층 (TurtleBot 안전 상태 송신)
- * ---------------------------------------------------------------------------
- *
- * 설계는 docs/JETSON_CONTROL_DESIGN.md 다. 요점만:
- *
- * 분류 루프는 프레임당 ROI 개수에 따라 주기가 흔들리고 TCP 왕복에 막힌다.
- * 그래서 송신은 20 ms 고정 스레드로 분리하고, 이 루프는 "최신 판단"만
- * 갱신한다. 판단이 아예 멈춘 것은 송신 스레드의 watchdog 이 잡는다 -
- * 멈춘 쪽은 스스로 그 사실을 보고할 수 없기 때문이다.
- *
- *   ADAS_UART_PORT   : 안전 상태를 내보낼 포트. 없으면 제어 계층을 켜지 않고
- *                      기존과 동일하게 동작한다 (/dev/ttyTHS1 또는 /dev/ttyUSB0)
- *   ADAS_UART_BAUD   : 기본 115200
- *   ADAS_EMPTY_FRAME_HEARTBEAT=0 : 검출 0건 프레임에 heartbeat ROI
- *                      보내는 것을 끈다. 기본은 켜 둔다 - 아래 heartbeat_frame
- *                      주석 참고. 순수 성능 측정만 할 때만 끈다.
- *   ADAS_HEARTBEAT_INTERVAL_MS : heartbeat 최소 간격(기본 150 ms).
- *                      PS 의 stale 판정(500 ms)보다 넉넉히 짧아야 한다.
- *   ADAS_CONTROL_ZONE_FILTER=1 : 경로 밖 후보를 분류 요청 전에 거른다.
- *                      결과는 바뀌지 않고(경로 밖은 어차피 Clear) 왕복만 준다.
- *                      기본은 꺼 둔다 - 켠 조건과 끈 조건을 각각 재고 정한다.
- */
-
-/* 이 프로젝트의 클래스 배치. KR260 과 한 칸씩 다르다 (background 가 앞에 붙었다). */
-safety::ClassMap projectClassMap() {
-    safety::ClassMap classes;
-    classes.background       = 0;
-    classes.car              = 1;
-    classes.person           = 2;
-    classes.sign_warning     = 3;
-    classes.sign_prohibition = 4;
-    classes.sign_mandatory   = 5;
-    return classes;
-}
-
-/*
- * 경로 밖(zone_x 밖) 후보는 어떤 class 여도 판단 결과가 Clear 다. 분류하지
- * 않아도 결과가 같으므로 왕복만 줄어든다 - 동작 보존 최적화다.
- */
-bool insidePathZone(
-    const adas::roi::RoiCandidate& candidate,
-    const adas::control::AdapterConfig& adapter,
-    const safety::JudgeConfig& judge
-) {
-    if (adapter.frame_width <= 0) {
-        return true;
-    }
-    const auto& box = candidate.object_bbox;
-    const float center_x =
-        (box.x + box.width * 0.5F) / static_cast<float>(adapter.frame_width);
-    return center_x >= judge.zone_x_min && center_x <= judge.zone_x_max;
-}
-
-/*
  * 응답을 못 받은 ROI 를 로그·오버레이에서 구분하기 위한 표식.
  * 프로토콜의 status 값(0..4)과 겹치지 않는 값을 쓴다.
  */
 constexpr std::uint32_t kStatusNoReply = 0xffffffffu;
-
-/* 연속 분류 실패가 이만큼이면 링크 장애로 본다. */
-constexpr std::uint32_t kLinkFailureThreshold = 3u;
 
 struct RoiRecord {
     int roi_index{0};
@@ -350,95 +270,12 @@ int main(int argc, char** argv) {
         }
     }
 
-    /* --- 제어 계층 --------------------------------------------------- */
-    const char* const uart_path = std::getenv("ADAS_UART_PORT");
-    const unsigned uart_baud =
-        static_cast<unsigned>(env_ulong("ADAS_UART_BAUD", 115200ul));
-    const bool zone_filter = env_flag("ADAS_CONTROL_ZONE_FILTER");
+    /* ROI가 없는 프레임도 Arty에 알려 프레임 경계를 계속 진행시킨다. */
     /* 기본 켜짐. 0 을 명시해야 꺼진다. */
     const bool empty_frame_heartbeat =
         env_ulong("ADAS_EMPTY_FRAME_HEARTBEAT", 1ul) != 0ul;
     const std::uint64_t heartbeat_interval_ms =
         static_cast<std::uint64_t>(env_ulong("ADAS_HEARTBEAT_INTERVAL_MS", 150ul));
-
-    adas::control::PosixUartPort uart;
-    adas::control::SteadySafetyClock safety_clock;
-    std::unique_ptr<adas::control::SafetyTransmitter> transmitter;
-    std::atomic_bool transmitter_stop{false};
-    std::thread transmitter_thread;
-
-    adas::control::SafetyDecider::Config decider_config;
-    decider_config.judge.classes = projectClassMap();
-    decider_config.latch.release_ms = 200u;
-    decider_config.latch.release_frames = 3u;
-
-    /*
-     * The judge gates depend on how the camera is mounted. Hardcoding them
-     * means a rebuild for every single value change, which makes tuning on
-     * the real board impractical.
-     */
-    decider_config.judge.sign_slow_height =
-        env_ratio("ADAS_SIGN_SLOW_HEIGHT", decider_config.judge.sign_slow_height);
-    decider_config.judge.stop_height =
-        env_ratio("ADAS_STOP_HEIGHT", decider_config.judge.stop_height);
-    decider_config.judge.slow_height =
-        env_ratio("ADAS_SLOW_HEIGHT", decider_config.judge.slow_height);
-    decider_config.judge.zone_y_min =
-        env_ratio("ADAS_ZONE_Y_MIN", decider_config.judge.zone_y_min);
-    decider_config.judge.zone_x_min =
-        env_ratio("ADAS_ZONE_X_MIN", decider_config.judge.zone_x_min);
-    decider_config.judge.zone_x_max =
-        env_ratio("ADAS_ZONE_X_MAX", decider_config.judge.zone_x_max);
-    decider_config.judge.min_score =
-        env_ratio("ADAS_MIN_SCORE", decider_config.judge.min_score);
-
-    /*
-     * If zone_x is inverted, the range check in judgeOne always fails and
-     * **nothing is ever judged a hazard** - braking disappears silently,
-     * so this has to be visible rather than merely logged.
-     */
-    if (decider_config.judge.zone_x_min > decider_config.judge.zone_x_max) {
-        std::cerr << "ADAS_ZONE_X_MIN > ADAS_ZONE_X_MAX: nothing would ever "
-                     "be judged as a hazard\n";
-        return EXIT_FAILURE;
-    }
-    if (decider_config.judge.slow_height > decider_config.judge.stop_height) {
-        std::cerr << "warning: ADAS_SLOW_HEIGHT > ADAS_STOP_HEIGHT, Slow "
-                     "state is unreachable\n";
-    }
-    adas::control::SafetyDecider decider(decider_config);
-
-    /*
-     * Record which gates this run used. Once the values are tunable from the
-     * environment, "what were they at the time" becomes a precondition for
-     * reading any measurement taken from this run.
-     */
-    std::cout << "safety judge: sign_slow_height="
-              << decider_config.judge.sign_slow_height
-              << " stop_height=" << decider_config.judge.stop_height
-              << " slow_height=" << decider_config.judge.slow_height
-              << " zone_x=[" << decider_config.judge.zone_x_min << ','
-              << decider_config.judge.zone_x_max << ']'
-              << " zone_y_min=" << decider_config.judge.zone_y_min
-              << " min_score=" << decider_config.judge.min_score << '\n';
-
-    if (uart_path != nullptr && *uart_path != '\0') {
-        if (!uart.open(uart_path, uart_baud)) {
-            /*
-             * 제어를 켜라고 했는데 못 켰다. 조용히 분류만 돌면 로봇이
-             * 제어 없이 움직이는 상태가 되므로 여기서 멈춘다.
-             */
-            std::cerr << "failed to open UART: " << uart_path << '\n';
-            return EXIT_FAILURE;
-        }
-        transmitter = std::make_unique<adas::control::SafetyTransmitter>(
-            uart, safety_clock, adas::control::SafetyTransmitter::Config{});
-        transmitter_thread = std::thread([&transmitter, &transmitter_stop]() {
-            transmitter->run(transmitter_stop);
-        });
-        std::cout << "safety uart: " << uart_path << " @" << uart_baud
-                  << ", zone-filter=" << (zone_filter ? "on" : "off") << '\n';
-    }
 
     std::unique_ptr<adas::stream::MjpegStreamServer> mjpeg_server;
     if (argc == 6) {
@@ -449,6 +286,12 @@ int main(int argc, char** argv) {
         }
         adas::stream::MjpegServerConfig mjpeg_config;
         mjpeg_config.port = mjpeg_port;
+        mjpeg_config.overlay_min_confidence_ppm = static_cast<std::uint32_t>(
+            std::min(
+                env_ulong("ADAS_OVERLAY_MIN_CONFIDENCE_PPM", 600000ul),
+                1000000ul
+            )
+        );
         mjpeg_server = std::make_unique<adas::stream::MjpegStreamServer>(mjpeg_config);
         if (!mjpeg_server->start()) {
             // 스트리밍은 부가 기능이다 - 못 띄워도 분류 파이프라인은
@@ -508,8 +351,6 @@ int main(int argc, char** argv) {
 
     Metrics metrics;
     std::vector<RoiRecord> frame_records;
-    std::vector<adas::control::RoiObservation> observations;
-    std::uint32_t consecutive_classify_failures = 0u;
     Clock::time_point measure_start;
     Clock::time_point measure_end;
     bool measuring = false;
@@ -529,13 +370,9 @@ int main(int argc, char** argv) {
             continue;
         }
         if (capture_status != FrameSource::Status::Ok) {
-            /* 카메라가 죽으면 판단 근거가 없다. 나가기 전에 Stop 을 남긴다. */
+            /* 카메라 장애는 Arty 쪽 판단 갱신 watchdog이 STOP으로 처리한다. */
             std::cerr << "camera capture stopped or failed\n";
             capture_failed = true;
-            decider.forceStop(safety_clock.nowMs());
-            if (transmitter) {
-                transmitter->publish(decider.state(), safety_clock.nowMs());
-            }
             break;
         }
         const Clock::time_point t_capture = Clock::now();
@@ -553,21 +390,6 @@ int main(int argc, char** argv) {
         } else {
             candidates = proposer.propose(frame, frame_id);
         }
-        if (zone_filter) {
-            /*
-             * 경로 밖은 어떤 class 여도 Clear 다. 분류하지 않아도 판단이
-             * 같으므로 왕복만 줄어든다.
-             */
-            std::vector<adas::roi::RoiCandidate> inside;
-            inside.reserve(candidates.size());
-            for (const auto& candidate : candidates) {
-                if (insidePathZone(candidate, decider.config().adapter,
-                                   decider.config().judge)) {
-                    inside.push_back(candidate);
-                }
-            }
-            candidates.swap(inside);
-        }
 
         /*
          * 검출 0건이어도 프레임당 요청 하나는 반드시 보낸다.
@@ -579,8 +401,8 @@ int main(int argc, char** argv) {
          * 멈춘다. 실제로 2026-08-20 데모에서 이것 때문에 STOP/CLEAR 가
          * 쉴 새 없이 드나들고 바퀴가 안 도는 증상이 나왔다.
          *
-         * objectness 를 0 으로 둔다. DetectionAdapter 가 min_objectness
-         * (0.25) 미만을 Rejected 로 버리므로 이 ROI 는 판단에 절대
+         * objectness 를 0 으로 둔다. Arty PS가 min_objectness(0.25)
+         * 미만을 버리므로 이 ROI 는 판단에 절대
          * 끼지 않는다. 즉 위험 근거를 만들어내지 않고 "이 프레임은
          * 살아 있고 볼 것이 없다"만 전달된다. bbox 도 이중 안전장치로
          * 경로 영역 밖(화면 좌측 상단)에 둔다.
@@ -594,7 +416,7 @@ int main(int argc, char** argv) {
          * 이 ROI 를 metrics · overlay · CSV 에서 전부 제외한다 - 그래야
          * "검출 0건 프레임"이라는 사실이 숫자에 그대로 남는다.
          */
-        const std::uint64_t frame_ms = safety_clock.nowMs();
+        const std::uint64_t frame_ms = monotonic_ms();
         const bool heartbeat_frame =
             empty_frame_heartbeat
             && candidates.empty()
@@ -624,7 +446,6 @@ int main(int argc, char** argv) {
         std::vector<adas::stream::RoiOverlay> overlays;
         overlays.reserve(candidates.size());
         frame_records.clear();
-        observations.clear();
 
         int roi_index = 0;
         for (const auto& candidate : candidates) {
@@ -652,16 +473,9 @@ int main(int argc, char** argv) {
              */
             const bool classified =
                 classify_status == adas::network::TcpClientStatus::Ok;
-            if (classified) {
-                consecutive_classify_failures = 0u;
-            } else {
-                ++consecutive_classify_failures;
-                if (!quiet) {
-                    std::cerr << "classification request failed ("
-                              << consecutive_classify_failures << " in a row)\n";
-                }
+            if (!classified && !quiet) {
+                std::cerr << "classification request failed\n";
             }
-            observations.push_back({candidate, result, classified});
 
             const std::int64_t crop_us = elapsed_us(t_roi_begin, t_crop);
             const std::int64_t rtt_us = elapsed_us(t_crop, t_rtt);
@@ -701,21 +515,7 @@ int main(int argc, char** argv) {
 
         /* 실제 ROI 든 heartbeat 든, 보냈으면 타이머를 갱신한다. */
         if (!candidates.empty()) {
-            last_request_ms = safety_clock.nowMs();
-        }
-
-        /*
-         * 개별 ROI 실패가 아니라 연속 실패는 링크 장애다. 판단 자체가
-         * 불가능하므로 래치를 거치지 않고 곧바로 Stop 이다.
-         */
-        const std::uint64_t now_ms = safety_clock.nowMs();
-        if (consecutive_classify_failures >= kLinkFailureThreshold) {
-            decider.forceStop(now_ms);
-        } else {
-            (void)decider.decide(observations, now_ms);
-        }
-        if (transmitter) {
-            transmitter->publish(decider.state(), now_ms);
+            last_request_ms = monotonic_ms();
         }
 
         /* 연결이 끊겼으면 다음 프레임을 위해 한 번 붙여 본다. */
@@ -801,26 +601,6 @@ int main(int argc, char** argv) {
     if (csv.is_open()) {
         csv.flush();
         csv.close();
-    }
-
-    /*
-     * 나가기 전에 Stop 을 한 번 더 남긴다. 이 프로세스가 사라지면 RPi 는
-     * 100 ms timeout 으로 Stop 을 유지하지만, 그 사이를 비워 둘 이유가 없다.
-     */
-    if (transmitter) {
-        decider.forceStop(safety_clock.nowMs());
-        transmitter->publish(decider.state(), safety_clock.nowMs());
-        transmitter_stop.store(true);
-        if (transmitter_thread.joinable()) {
-            transmitter_thread.join();
-        }
-        const auto safety_stats = transmitter->stats();
-        std::printf("safety uart: sent %llu, failures %llu, stale %llu,"
-                    " immediate stops %llu\n",
-                    (unsigned long long)safety_stats.frames_sent,
-                    (unsigned long long)safety_stats.send_failures,
-                    (unsigned long long)safety_stats.stale_events,
-                    (unsigned long long)safety_stats.immediate_stops);
     }
 
     frame_source.stop();

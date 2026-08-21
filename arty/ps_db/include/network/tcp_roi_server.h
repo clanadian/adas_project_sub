@@ -84,7 +84,7 @@ adas_tcp_roi_status_t adas_tcp_roi_server_set_no_delay(
  * TCP 부분 수신을 내부에서 반복 처리한다.
  * image_payload는 ADAS_ROI_IMAGE_PAYLOAD_SIZE 바이트 이상이어야 한다.
  *
- * out_bbox는 안전 판단(zone/거리, DetectionAdapter 대응)에 쓰인다 - crop된
+ * out_bbox는 안전 판단의 zone/거리 계산에 쓰인다 - crop된
  * image_payload만으로는 화면상 위치·크기를 알 수 없어서 별도로 받는다.
  */
 adas_tcp_roi_status_t adas_tcp_roi_server_receive_request(

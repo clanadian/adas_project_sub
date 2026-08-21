@@ -1,5 +1,6 @@
 > ⚠️ **이 문서는 옛 아키텍처(RPi 자체 YOLO + WebRTC + LB 데드맨)를 설명한다.**
-> 현재 데모는 Jetson + Arty 가 판단하고 RPi 는 UART 로 받기만 한다.
+> 현재 데모는 Jetson이 객체 후보를 만들고 Arty PS가 안전 상태를 판단하며,
+> RPi는 UART로 상태를 받는다.
 > 아래의 `ros2 launch rpi_adas_demo demo.launch.py` 를 그대로 쓰면
 > `yolo_safety_node` 가 `/adas/safety_state` 에 두 번째 발행자로 붙어 충돌한다.
 > **현재 절차는 `~/README.md` 를 볼 것.**

@@ -350,7 +350,6 @@ docs/
   contracts/            데이터·하드웨어 계약 (정본)
   DB_ARTY_BRINGUP_REPORT.md   브링업 진단·검증 보고서
   FPS_MEASUREMENT_GUIDE.md    FPS·지연 측정 계측과 절차
-  JETSON_CONTROL_DESIGN.md    TurtleBot 제어 로직 설계
   PS_PIPELINE_STUDY.md        개념 ↔ 코드 대응 설명
   contracts/ROI_CLASSIFIER_CONTRACT.md   PL↔PS 연동 계약 (db/eb 공통 + 변종별 정본)
   contracts/PL_HANDOFF_CHECKLIST.md      PL 인계본 접수 기준
@@ -358,8 +357,8 @@ docs/
 
 `common/`은 이전 KR260 기반 시스템에서 가져온 안전 판단 계층
 (SafetyJudge / HazardLatch / UART frame)이다. 최종 DB 구성에서는 Arty PS가
-이를 링크해 판단과 UART 송신을 수행하며, Jetson 구현은 대체 경로와 호스트
-테스트 기준으로 유지한다.
+이를 링크해 판단과 UART 송신을 수행한다. Jetson은 안전 판단 계층을 링크하지
+않는다.
 
 ---
 
@@ -377,7 +376,7 @@ docs/
   [`PS_TCP_RESPONSE_FIX.md`](PS_TCP_RESPONSE_FIX.md).
 - **제어 계층 실보드 검증** — 판단·래치·UART 송신은 구현하고 단위 테스트까지
   마쳤다. 남은 것은 배선 확인, zone·거리 임계값 캘리브레이션, 실주행이다.
-  설계와 절차는 [`JETSON_CONTROL_DESIGN.md`](JETSON_CONTROL_DESIGN.md).
+  최종 제어 결선은 [`../arty/ps_db/README.md`](../arty/ps_db/README.md)에 정리했다.
 - ~~**PL 구현 단일화**~~ — 2026-08-20 결정 완료. 부록 A 참조.
 
 ---
@@ -409,5 +408,6 @@ EB=구현 B)을 병행 개발해 비교했다. **2026-08-20, DB(구현 A)를 배
 확인하는 절차를 문서와 디렉터리 이름 양쪽에 박아 두었다.
 
 구현 B의 성능 개선 과정(출력 쓰기 구조 변경으로 −13%, 중간 버퍼 제거로 추가
-−2% 및 면적 회수)은 `arty/pl_eb/doc/2026-08-18_arty96-perf-campaign.md`에
+−2% 및 면적 회수)은 Git 태그 `eb-comparison-final`의
+`arty/pl_eb/doc/2026-08-18_arty96-perf-campaign.md`에
 채택·기각 근거와 함께 전부 기록되어 있다.

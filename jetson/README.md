@@ -115,26 +115,17 @@ Run:
 
 ## 제어 코드의 위치와 최종 운용
 
-Jetson에 구현된 `DetectionAdapter`·`SafetyDecider`·`SafetyTransmitter`는
-초기 제어 경로와 호스트 단위 테스트를 위해 유지한다. **최종 DB 구성의 제어
-주체는 Arty PS**다. Jetson은 원본 bbox를 ROI1 v2 요청에 실어 보내고, Arty
-PS가 분류 결과와 결합해 안전 상태를 판단한 뒤 `/dev/ttyPS1`로 전송한다.
+Jetson에는 안전 판단과 UART 송신 코드가 없다. Jetson은 원본 bbox와 ROI를
+Arty에 보내고 분류 결과를 화면에 표시한다. Arty PS가 bbox와 분류 결과를
+결합해 안전 상태를 판단하고 `/dev/ttyPS1`로 TurtleBot에 전송한다.
 
-따라서 최종 실행에서는 Jetson의 `ADAS_UART_PORT`를 설정하지 않는다. 이 변수를
-지정하면 기존 Jetson 직접 UART 경로가 켜지므로, PS 송신과 동시에 사용하면 안
-된다. 판단 규칙과 watchdog 설계는
-[`../docs/JETSON_CONTROL_DESIGN.md`](../docs/JETSON_CONTROL_DESIGN.md)를 본다.
+`ADAS_SIGN_SLOW_HEIGHT`, `ADAS_SLOW_HEIGHT`, `ADAS_STOP_HEIGHT`,
+`ADAS_ZONE_*`, `ADAS_MIN_SCORE`, `ADAS_UART_PORT`는 모두
+`ps_classifier_server` 실행 환경에 설정한다.
 
 검출 0건 프레임에서도 판단 watchdog이 죽지 않도록 heartbeat ROI를 주기적으로
 보낸다(`ADAS_EMPTY_FRAME_HEARTBEAT`, 기본 켜짐) — 안 하면 빈 화면에서 Stop이
 나가고 로봇이 멈춘다. 자세한 이유는 위 설계 문서 §6.
-
-| 컴포넌트 | 역할 |
-| --- | --- |
-| `DetectionAdapter` | Jetson 대체 경로용 bbox+class 변환 |
-| `SafetyDecider` | 공통 판단 규칙의 Jetson 래퍼 및 테스트 기준 |
-| `SafetyTransmitter` | PS와 Jetson이 공유하는 20 ms 송신 구현 |
-| `UartPort` | PS와 Jetson이 공유하는 POSIX termios 구현 |
 
 ## 측정
 
@@ -153,3 +144,13 @@ ADAS_MEASURE_QUIET=1 ADAS_MEASURE_CSV=/tmp/jetson.csv \
 `http://<jetson-ip>:<mjpeg-port>/`로 카메라 화면 위에 ROI 박스와 분류
 결과(class + confidence%)를 겹쳐서 볼 수 있다. 안 주면 스트리밍 없이 이전과
 동일하게 동작한다 (추가 스레드도 뜨지 않는다).
+
+성공한 분류 결과도 confidence가 기본 `600000`(60%) 미만이면 MJPEG에
+bbox와 class label을 그리지 않는다. 이는 표시 전용 필터로 ROI 전송,
+PL 분류, Arty 안전 판단은 건드리지 않는다. 실험 시 다음 환경변수로
+`0..1000000` 범위에서 조정한다.
+
+```bash
+ADAS_OVERLAY_MIN_CONFIDENCE_PPM=600000 \
+./jetson/build/jetson_roi_client /dev/video0 <PS_IP> 5000 <engine> 8080
+```

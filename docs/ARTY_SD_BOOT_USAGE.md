@@ -1,4 +1,4 @@
-# Arty Z7-20 SD 부팅 사용법 (DB / EB)
+# Arty Z7-20 SD 부팅 사용법 (DB)
 
 ## 1. DB 사용법
 
@@ -125,138 +125,9 @@ status=0 class_id=2 confidence_ppm=992666
 
 ---
 
-## 2. EB 사용법
+## 2. Jetson 사용법
 
-### 2.0 부팅
-
-1. EB SD 카드를 보드에 꽂는다 (`arty/deploy/burn_sd.sh` 참고).
-2. 점프퍼를 SD 부팅으로 맞춘다.
-3. UART 콘솔을 먼저 연다.
-
-   ```bash
-   sudo picocom -b 115200 /dev/ttyUSB1
-   ```
-
-4. 보드 전원을 켜거나 RESET을 누른다.
-
-**초록색 DONE LED가 켜지는지 확인한다.** 이게 켜져야 비트스트림이 정상
-로드된 것이고, 부팅이 제대로 진행되고 있다는 뜻이다. 안 켜지면 그 뒤로
-아무리 기다려도 UART에 아무것도 안 나온다.
-
-**부팅 중간에 화면이 한동안 멈춘 것처럼 안 움직이는 구간이 있다. 정상이다 —
-그냥 기다리면 로그인 프롬프트까지 올라온다.**
-
-5. 로그인한다.
-
-   ```text
-   login: petalinux
-   Password: (Enter — 빈 비밀번호)
-   ```
-
-   첫 로그인이면 새 비밀번호를 설정하라고 나온다.
-
-6. 네트워크를 잡는다. `root=/dev/ram0`(initramfs)라 **재부팅하면 매번 다시
-   해야 한다.** 인터페이스 이름 확인 방법, 함정은
-   [`ARTY_NETWORK_SETUP.md`](ARTY_NETWORK_SETUP.md) 참고.
-
-   ```sh
-   IF=<dmesg 에서 확인한 이름>
-   sudo ip addr add 10.10.16.62/24 dev "$IF"
-   sudo ip route add default via 10.10.16.254
-   ```
-
-### 2.1 모델·golden 업로드 (PC에서)
-
-```bash
-scp -r arty/models/roi_classifier_int8_eb/export petalinux@10.10.16.62:/tmp/model
-scp -r arty/pl_eb/golden petalinux@10.10.16.62:/tmp/golden
-ssh petalinux@10.10.16.62 'sudo mkdir -p /opt/adas/model /opt/adas/golden && \
-    sudo cp -r /tmp/model/* /opt/adas/model/ && \
-    sudo cp -r /tmp/golden/* /opt/adas/golden/'
-```
-
-### 2.2 드라이버 확인
-
-```sh
-dmesg | grep -i adas
-```
-
-```text
-adas_classifier: loading out-of-tree module taints kernel.
-adas_classifier_eb 40000000.classifier: EB classifier: DMA buffer at 0x1f080000, size 0x5b000, 6 ops
-```
-
-### 2.3 서버·골든 테스트 빌드·업로드 (PC에서)
-
-`ps_classifier_server`·`ps_eb_golden_test` 둘 다 아직 rootfs 레시피에 없다 —
-DB와 달리 EB는 golden 테스트 도구도 매번 PC에서 크로스컴파일해서 올려야 한다.
-
-DB 빌드 트리의 컴파일러·sysroot를 그대로 쓴다(DB·EB 둘 다 같은 Cortex-A9
-하드플로트 ABI라 공용 가능) — §1.3의 DB `petalinux-build`가 이미 되어 있어야
-한다.
-
-```bash
-cmake -S arty/ps_eb -B arty/ps_eb/build_arm \
-    -DCMAKE_TOOLCHAIN_FILE="$(pwd)/arty/tools/toolchain_arm_cortexa9.cmake" \
-    -DCMAKE_BUILD_TYPE=Release
-cmake --build arty/ps_eb/build_arm -j2 --target ps_classifier_server ps_eb_golden_test
-
-scp arty/ps_eb/build_arm/ps_classifier_server \
-    arty/ps_eb/build_arm/ps_eb_golden_test \
-    petalinux@10.10.16.62:/home/petalinux/
-```
-
-### 2.4 PL 골든 테스트 (선택, op 6개 단계별)
-
-이미 검증된 SD 카드·가중치 그대로면 매번 안 돌려도 된다. 이미지를 새로
-굽거나 가중치를 바꿨을 때, 또는 뭔가 이상할 때 원인 확인용으로 돌린다.
-
-```sh
-sudo /home/petalinux/ps_eb_golden_test /opt/adas/model /opt/adas/golden /dev/adas_classifier 2000
-```
-
-```text
-op0 conv0  PASS   147456 B bit-exact    3037 us
-op1 pool0  PASS    36864 B bit-exact     621 us
-op2 conv1  PASS    73728 B bit-exact    5069 us
-op3 pool1  PASS    18432 B bit-exact     355 us
-op4 conv2  PASS    36864 B bit-exact    3036 us
-op5 pool2  PASS     9216 B bit-exact     218 us
-PASS: 6-op 전부 bit-exact, PL 합계 12336 us
-```
-
-### 2.5 서버 실행
-
-```sh
-sudo /home/petalinux/ps_classifier_server "*" 5000 /opt/adas/model 6 1 \
-    1545298110 37 1 \
-    1525725976 36 1 \
-    1924470265 39 0 \
-    7.863078629513149e-06
-```
-
-```text
-classifier server listening on port 5000
-```
-
-DB와 인자 형식이 다르다 — conv마다 `<multiplier> <shift> <leaky>` 세 개씩
-(leaky는 conv0·conv1=1, conv2=0), 마지막이 `logits_scale`.
-
-### 2.6 동작 확인 (PC에서, golden 벡터로 검증된 요청)
-
-```bash
-python3 /path/to/roi_client.py 10.10.16.62 5000 arty/models/roi_classifier_int8_eb/export
-```
-
-```text
-status=0 class_id=2 confidence_ppm=776093
-```
-
----
-
-## 3. Jetson 사용법
-
-### 3.0 켜기
+### 2.0 켜기
 
 Jetson은 SD 카드나 UART가 필요 없다 — 자체 저장장치(JetPack)로 부팅하고
 DHCP로 자동으로 IP를 받는다.
@@ -273,7 +144,7 @@ DHCP로 자동으로 IP를 받는다.
 카메라(`/dev/video0`)와 저장소(`/home/jetson/adas_project_sub`)는 이미
 올라와 있다. 빌드가 안 돼 있으면 `jetson/README.md`의 Build and test 참고.
 
-### 3.1 실행 — DB에 붙이기
+### 2.1 실행 — DB에 붙이기
 
 ```bash
 cd /home/jetson/adas_project_sub/jetson
@@ -281,15 +152,7 @@ cd /home/jetson/adas_project_sub/jetson
     models/proposal/export/proposal_yolov8n_fp16.engine 8080
 ```
 
-### 3.2 실행 — EB에 붙이기
-
-```bash
-cd /home/jetson/adas_project_sub/jetson
-./build/jetson_roi_client /dev/video0 10.10.16.62 5000 \
-    models/proposal/export/proposal_yolov8n_fp16.engine 8080
-```
-
-### 3.3 결과
+### 2.2 결과
 
 ```text
 V4L2Capture: /dev/video0  YUYV 640x360 @30fps  bytesperline=1280 sizeimage=460800
@@ -308,9 +171,9 @@ Arty 서버(DB든 EB든)가 먼저 떠 있어야 한다 — 안 그러면 연결
 
 ---
 
-## 4. 종료
+## 3. 종료
 
-### Arty (DB/EB)
+### Arty (DB)
 
 ```sh
 # 서버가 떠 있는 터미널에서

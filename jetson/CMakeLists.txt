@@ -62,39 +62,8 @@ if(TENSORRT_INCLUDE_DIR AND TENSORRT_LIBRARY AND CUDART_LIBRARY)
     target_compile_options(camera_roi_check PRIVATE -Wall -Wextra -Wpedantic)
 endif()
 
-# ---------------------------------------------------------------------------
-# 제어 계층
-# ---------------------------------------------------------------------------
-# common/ 은 KR260 저장소와 공유하는 안전 판단 계층이다. 힙·STL 컨테이너·
-# 예외를 쓰지 않는 제한된 C++17 이라 그대로 링크된다. 여기서 쓰는 것만
-# 골라 넣는다 - SafetyMessage(코어 간 공유 메모리)는 이 구조에 필요 없다.
-add_library(adas_safety STATIC
-    ../common/src/SafetyJudge.cpp
-    ../common/src/SafetyHazardLatch.cpp
-    ../common/src/UartFrame.cpp
-)
-
-target_include_directories(adas_safety PUBLIC ../common/include)
-target_compile_options(adas_safety PRIVATE -Wall -Wextra -Wpedantic)
-
-add_library(adas_jetson_control STATIC
-    src/control/DetectionAdapter.cpp
-    src/control/SafetyDecider.cpp
-    src/control/SafetyTransmitter.cpp
-    src/control/UartPort.cpp
-)
-
-target_link_libraries(adas_jetson_control
-    PUBLIC
-        adas_safety
-        adas_jetson_pipeline
-        Threads::Threads
-)
-
-target_compile_options(adas_jetson_control PRIVATE -Wall -Wextra -Wpedantic)
-
 add_executable(jetson_roi_client tools/jetson_roi_client.cpp)
-target_link_libraries(jetson_roi_client PRIVATE adas_jetson_control)
+target_link_libraries(jetson_roi_client PRIVATE adas_jetson_pipeline Threads::Threads)
 target_compile_options(jetson_roi_client PRIVATE -Wall -Wextra -Wpedantic)
 
 enable_testing()
@@ -119,21 +88,6 @@ add_test(
     NAME roi_preprocessor
     COMMAND test_roi_preprocessor
 )
-
-add_executable(test_detection_adapter tests/test_detection_adapter.cpp)
-target_link_libraries(test_detection_adapter PRIVATE adas_jetson_control)
-target_compile_options(test_detection_adapter PRIVATE -Wall -Wextra -Wpedantic)
-add_test(NAME detection_adapter COMMAND test_detection_adapter)
-
-add_executable(test_safety_decider tests/test_safety_decider.cpp)
-target_link_libraries(test_safety_decider PRIVATE adas_jetson_control)
-target_compile_options(test_safety_decider PRIVATE -Wall -Wextra -Wpedantic)
-add_test(NAME safety_decider COMMAND test_safety_decider)
-
-add_executable(test_safety_transmitter tests/test_safety_transmitter.cpp)
-target_link_libraries(test_safety_transmitter PRIVATE adas_jetson_control)
-target_compile_options(test_safety_transmitter PRIVATE -Wall -Wextra -Wpedantic)
-add_test(NAME safety_transmitter COMMAND test_safety_transmitter)
 
 add_executable(test_latency_stats
     tests/test_latency_stats.cpp

@@ -4,7 +4,7 @@
 온 것이다. 그쪽은 APU(Linux)가 detection을 공유 메모리에 쓰고 RPU(R5
 bare-metal)가 읽어 UART로 내보내는 2-코어 구조였다. **이 프로젝트에는
 RPU가 없고, 최종 DB 구성에서는 Arty PS Linux 프로세스가 판단과 UART 송신을
-맡는다.** Jetson 구현도 대체 경로와 단위 테스트 기준으로 남겨 둔다.
+맡는다.** Jetson에는 이 판단·UART 계층을 두지 않는다.
 
 ## 이 프로젝트에서의 데이터 흐름
 
@@ -25,7 +25,7 @@ Arty PS 분류 서버
 같은 PS 프로세스 안 두 스레드가 판단과 송신을 분리하므로, KR260의
 `SafetyMessage`(seqlock 공유 DDR)에 해당하는 코어 간 동기화가 필요 없다.
 전체 구조와 스레드를 나누는 이유는
-[`../docs/JETSON_CONTROL_DESIGN.md`](../docs/JETSON_CONTROL_DESIGN.md) 참고.
+최종 결선은 [`../arty/ps_db/README.md`](../arty/ps_db/README.md)를 참고한다.
 
 ## 이 프로젝트에서 실제로 쓰는 것
 
@@ -39,8 +39,8 @@ Arty PS 분류 서버
 
 빌드는 `common/CMakeLists.txt`를 직접 쓰지 않는다. 최종 DB에서는
 `arty/ps_db/CMakeLists.txt`의 `adas_ps_safety`가 `SafetyJudge.cpp`,
-`SafetyHazardLatch.cpp`, `UartFrame.cpp`를 링크한다. Jetson도 동일 소스를
-호스트 테스트와 대체 경로에 링크한다.
+`SafetyHazardLatch.cpp`, `UartFrame.cpp`를 링크한다. Jetson은 이 계층을
+링크하지 않는다.
 
 ### 안전 판단과 HazardLatch
 
@@ -67,7 +67,7 @@ Released hold_ms를 넘기면 진입. 트리거한 class를 제외하고 재판�
 
 시간과 프레임 수를 함께 쓰는 이유는 프레임률 하나에만 의존하면 안 되기
 때문이다 — 자세한 근거는
-[`../docs/JETSON_CONTROL_DESIGN.md`](../docs/JETSON_CONTROL_DESIGN.md) §4.
+세부 임계값은 `SafetyJudge.hpp`와 Arty PS README에 기록한다.
 
 object tracking이 없어 "같은 개체인지 다른 개체인지"는 구분하지 못하고
 class 단위로만 근사한다. 이 제한은 Stop 이벤트를 만드는 car/person 래치에
@@ -80,7 +80,7 @@ class 단위로만 근사한다. 이 제한은 Stop 이벤트를 만드는 car/p
 판단 임계값(`JudgeConfig`)과 `hold_ms`/`release_ms`/`release_frames`
 (`HazardLatch::Config`)는 실보드에서 조정할 설정값이다. `zone_x`·`stop_height`
 등 기하 임계값은 카메라 장착 조건에 달려 있어 실물 캘리브레이션이 필요하다
-([`../docs/JETSON_CONTROL_DESIGN.md`](../docs/JETSON_CONTROL_DESIGN.md) §11).
+테스트는 Arty PS 빌드에서 함께 수행한다.
 상태 값과 순서는 UART 계약과 연결되어 있으므로 임의로 변경하지 않는다.
 
 ## R5 호환 규칙 — 왜 아직 지키는가
@@ -104,7 +104,7 @@ class 단위로만 근사한다. 이 제한은 Stop 이벤트를 만드는 car/p
 - 예외, RTTI와 소유권이 불분명한 포인터
 
 하드웨어 접근이나 스레드·뮤텍스가 필요한 부분(`SafetyTransmitter`,
-`UartPort` 등)은 `common/`에 넣지 않고 `jetson/include/control/`에 둔다.
+`UartPort` 등)은 `common/`에 넣지 않고 `arty/ps_db`에 둔다.
 
 ## 빌드와 테스트
 
@@ -131,7 +131,7 @@ ctest --test-dir jetson/build --output-on-failure
 | 추가 | 왜 |
 | --- | --- |
 | `JudgeConfig::classes` (`ClassMap`) | 모델의 클래스 순서가 프로젝트마다 다르다. Jetson-Arty 판은 `background`가 앞에 붙어 전체가 한 칸씩 밀린다. 상수를 소스에 박으면 반대쪽에서 **오류 없이 car를 person으로 판단한다** |
-| `HazardLatch::Config::release_ms` | `release_frames`만 쓰면 판단 주기가 바뀔 때 해제 시간이 같이 흔들린다. KR260은 20ms 고정 tick이었지만 Jetson은 프레임률이 ROI 개수에 따라 프레임마다 달라진다. 0이면 시간 조건 없음(기존 동작) |
+| `HazardLatch::Config::release_ms` | `release_frames`만 쓰면 판단 주기가 바뀔 때 해제 시간이 같이 흔들린다. KR260은 20ms 고정 tick이었지만 현재 PS 판단 갱신 주기는 Jetson의 ROI 개수에 따라 달라진다. 0이면 시간 조건 없음(기존 동작) |
 | `JudgeConfig::sign_slow_height` | 개별 정지표지판을 구분하지 못하므로 표지판은 가까울 때 `Slow`까지만 내고 `Stop`·래치를 만들지 않는다 |
 
 `common/`을 수정할 때는 다른 변경과 섞지 말고 별도 커밋으로 남긴다

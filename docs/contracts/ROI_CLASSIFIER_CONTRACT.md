@@ -3,16 +3,13 @@
 이 문서는 Jetson Nano, Arty Z7-20 PS, PL ROI 분류 가속기 사이의
 현재 계약을 정의한다.
 
-PL 구현이 담당자별로 둘로 나뉘어 있고 **산술이 서로 다르다**. PL 동작의 정본은
-변종별로 아래를 본다.
+PL 동작의 정본은 아래 DB 구현과 이에 맞춘 INT8 가중치다.
 
 | 변종 | PL 정본 | INT8 가중치 |
 | --- | --- | --- |
 | DB | `arty/pl_db/hls/HW/classifier_engine.*` | `arty/models/roi_classifier_int8_db/` |
-| EB | `arty/pl_eb/conv_engine_tr8/HW/conv_engine.*` | `arty/models/roi_classifier_int8_eb/` |
 
-아래 §1~ 의 데이터 형식·전송 규약은 두 변종에 공통이다. 활성화·requant 규칙은
-변종마다 다르므로 각 PL 정본을 따른다.
+종료된 비교용 EB 구현은 Git 태그 `eb-comparison-final`에 보존한다.
 
 ## 1. 전체 데이터 흐름
 
@@ -173,6 +170,9 @@ export의 FC scale에 흡수돼 있으므로 PS에서 다시 나누지 않는다
 - car/person: bbox 위치·높이에 따라 `Clear/Slow/Stop`; Stop은 HazardLatch 적용
 - sign 3종: 경로 안에서 `sign_slow_height` 이상이면 `Slow`, 그 외 `Clear`
 - sign은 개별 정지표지판을 구분할 수 없으므로 `Stop`을 만들지 않고 래치되지 않음
+- 분류 confidence 60% 미만은 class로 확정하지 않음; 경로 안의 큰
+  bbox는 미확정 장애물로 `Slow`, 작거나 경로 밖이면 `Clear`
+- 위 confidence 기본값은 `ADAS_MIN_CLASS_CONFIDENCE_PPM=600000`으로 조정 가능
 - 링크·카메라 판단 불능은 래치를 우회해 즉시 `Stop`
 
 ## 9. UART 계약

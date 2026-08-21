@@ -3,12 +3,10 @@
 # Arty Z7 부팅 SD 카드에 이미지를 굽는다.
 #
 #   ./burn_sd.sh db          db 카드에 deploy/db_sd_boot/ 를 복사
-#   ./burn_sd.sh eb          eb 카드에 deploy/eb_sd_boot/ 를 복사
-#   ./burn_sd.sh eb -n       실제로 쓰지 않고 무엇을 할지만 출력
-#   ./burn_sd.sh eb -s DIR   소스 디렉터리를 직접 지정
+#   ./burn_sd.sh db -n       실제로 쓰지 않고 무엇을 할지만 출력
+#   ./burn_sd.sh db -s DIR   소스 디렉터리를 직접 지정
 #
-# 대상 장치를 사람이 고르지 않는다. 변종에 대응하는 FAT UUID 로 카드를 찾으므로
-# 반대쪽 담당자의 카드에 덮어쓸 수 없다.
+# 대상 장치를 사람이 고르지 않는다. 최종 DB 카드의 FAT UUID로 찾는다.
 #
 # 파티션을 만들거나 포맷하지 않는다 — 이미 준비된 카드에 파일만 갱신한다.
 # 새 카드를 처음 준비하는 절차는 README 를 본다.
@@ -18,10 +16,7 @@ set -euo pipefail
 # ── 카드 UUID 대응 ──────────────────────────────────────────────────
 # 카드를 다시 포맷하면 UUID 가 바뀐다. 그때 이 값을 갱신한다.
 #   확인: lsblk -o NAME,SIZE,LABEL,UUID /dev/sdX
-declare -A CARD_UUID=(
-  [db]="7AEA-B01B"
-  [eb]="6566-3130"
-)
+CARD_UUID="7AEA-B01B"
 
 FILES=(BOOT.BIN boot.scr image.ub)
 
@@ -43,7 +38,7 @@ DRY=0
 
 while (($#)); do
   case "$1" in
-    db|eb)     VARIANT="$1" ;;
+    db)        VARIANT="$1" ;;
     -n|--dry-run) DRY=1 ;;
     -s|--source)  SRC="${2:-}"; shift ;;
     -h|--help)    usage 0 ;;
@@ -54,7 +49,7 @@ done
 
 [[ -n $VARIANT ]] || usage 1
 
-UUID="${CARD_UUID[$VARIANT]}"
+UUID="$CARD_UUID"
 SRC="${SRC:-$HERE/${VARIANT}_sd_boot}"
 
 # ── 소스 확인 ───────────────────────────────────────────────────────

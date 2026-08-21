@@ -130,7 +130,23 @@ bringup → **모터 토크 ON** → UART 수신 → joy → arbiter → teleop 
 > bringup 은 매번 토크가 **꺼진 채로** 올라온다. 안 켜면 `/cmd_vel` 에 값이
 > 실려도 바퀴가 안 돈다. 스크립트가 대신 켜 준다.
 
-### 2.4 확인
+### 2.4 통합 UI
+
+`start_robot.sh`가 UI 서버도 함께 실행한다. 브라우저에서 다음 주소로 접속한다.
+
+```text
+http://10.10.16.200:8090
+```
+
+- 영상은 Jetson MJPEG를 브라우저가 직접 받으며 RPi는 재인코딩하지 않는다.
+- 안전 상태는 `/adas/safety_state`를 표시한다. 1초 이상 수신이 없으면
+  마지막 상태 대신 `NO SIGNAL`을 표시한다.
+- `/odom` 실측 속력과 `/cmd_vel` 명령값도 함께 표시한다.
+- JSON 상태는 `http://10.10.16.200:8090/api/state`에서 확인한다.
+
+HTML·CSS·JavaScript는 `scripts/ui_server.py`의 `PAGE` 문자열에 있다.
+
+### 2.5 확인
 
 ```bash
 ros2 topic echo /adas/safety_state --field data
@@ -177,7 +193,7 @@ python3 ~/rawuart.py
 scp -r turtlebot/ros2_ws/src/rpi_adas_demo ubuntu@10.10.16.200:~/ros2_ws/src/
 ```
 ```bash
-scp turtlebot/scripts/{button_teleop.py,start_robot.sh,stop_robot.sh} ubuntu@10.10.16.200:~/
+scp turtlebot/scripts/{button_teleop.py,ui_server.py,start_robot.sh,stop_robot.sh} ubuntu@10.10.16.200:~/
 ```
 ```bash
 scp turtlebot/tools/{rawuart.py,joy_check.py} ubuntu@10.10.16.200:~/
@@ -232,6 +248,7 @@ RPi 를 새로 깔았다면 이것들도 다시 해야 한다. **하나라도 �
 |---|---|---|
 | `ros2_ws/src/rpi_adas_demo/` | RPi `~/ros2_ws/src/rpi_adas_demo/` | 팀 정식 ROS 2 패키지 |
 | `scripts/button_teleop.py` | RPi `~/button_teleop.py` | Xbox 조종. **패키지 밖에 있다** |
+| `scripts/ui_server.py` | RPi `~/ui_server.py` | 통합 HTML·상태 API 서버 |
 | `scripts/start_robot.sh` | RPi `~/start_robot.sh` | |
 | `scripts/stop_robot.sh` | RPi `~/stop_robot.sh` | |
 | `tools/rawuart.py` | RPi `~/rawuart.py` | UART 진단 |
@@ -340,11 +357,9 @@ grep -a ':1388' /proc/net/tcp
 | | 내용 | 문서 |
 |---|---|---|
 | 1 | **Arty 서버 응답 write 합치기.** 지금은 `ADAS_TCP_NODELAY=1` 로 가려 둔 상태 | `docs/PS_TCP_RESPONSE_FIX.md` §4 |
-| 2 | `ps_eb` 도 1 과 같은 구조 | 위와 같음 |
-| 3 | **Xbox 컨트롤러 미연결** (`/dev/input/js0` 없음). 배터리 교체 후 재페어링 필요할 수 있음 | — |
-| 4 | 판단 임계값이 KR260 값 그대로 (`zone_x`, `stop_height` 등) | — |
-| 5 | 패키지 README 갱신 (§6.1) | — |
-| 6 | `docs/ARTY_NETWORK_SETUP.md` 정정 — Arty 는 initramfs 가 아니라 SD ext4 rootfs 다 | `docs/UART_STATUS_REPORT.md` §9 |
+| 2 | **Xbox 컨트롤러 미연결** (`/dev/input/js0` 없음). 배터리 교체 후 재페어링 필요할 수 있음 | — |
+| 3 | 판단 임계값이 KR260 값 그대로 (`zone_x`, `stop_height` 등) | — |
+| 4 | 패키지 README 갱신 (§6.1) | — |
 
 ---
 

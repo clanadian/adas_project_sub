@@ -1,6 +1,7 @@
 # Arty Z7-20 ROI Classifier PL — DB
 
-DB 담당자가 만든 PL 가속기다. EB 쪽은 `../pl_eb/` 를 본다.
+DB 담당자가 만든 최종 PL 가속기다. 비교용 EB 구현은 Git 태그
+`eb-comparison-final`에 보존되어 있다.
 
 현재 소스와 리포트는 `z7_classifier_96_hls_100mhz_dsppack.zip`의
 2026-08-19 최종 DSP-pack 버전을 기준으로 한다.

@@ -6,16 +6,11 @@
 #include "roi_protocol.h"
 
 /*
- * ps_classifier_server.c(순수 C)에서 안전 판단 + UART 송신(공통 common/,
- * jetson/include/control/의 SafetyTransmitter·UartPort)을 쓰기 위한 C
- * 경계다. 판단 로직 자체는 common/SafetyJudge.hpp·SafetyHazardLatch.hpp를
- * 직접 쓴다 - jetson/include/control/DetectionAdapter.hpp나 SafetyDecider는
- * 안 쓴다. 그쪽은 RoiObservation을 통해 OpenCV까지 딸려오는 Jetson 전용
- * 접착 타입이라, OpenCV가 없는 Arty PS 크로스컴파일 환경에 안 맞는다.
+ * ps_classifier_server.c(순수 C)에서 안전 판단 + UART 송신을 쓰기 위한 C
+ * 경계다. 판단 로직은 common/SafetyJudge.hpp·SafetyHazardLatch.hpp를,
+ * 송신은 같은 Arty PS 디렉터리의 SafetyTransmitter·UartPort를 쓴다.
  *
- * 판단 규칙(bbox 정규화, Unclassified->person 대체, background 버림)은
- * DetectionAdapter::adapt()와 동일하게 여기서 다시 구현한다
- * (ps_safety_bridge.cpp 참고).
+ * bbox 정규화, 분류 실패 처리, background 제외도 이 계층이 담당한다.
  */
 
 #ifdef __cplusplus
@@ -37,7 +32,7 @@ ps_safety_handle_t* ps_safety_start(const char* uart_port, unsigned baud);
  * 분류 결과 하나를 "지금 모으는 중인 프레임"의 관측 버퍼에 追加한다.
  * 판단은 여기서 하지 않는다 - ps_safety_flush_frame()이 프레임 전체를
  * 모아 한 번에 판단해야, 한 프레임에 ROI가 여러 개일 때 "가장 위험한
- * 것 하나"를 제대로 고를 수 있다(원래 SafetyDecider와 같은 규칙).
+ * 것 하나"를 제대로 고를 수 있다.
  *
  * bbox는 crop이 아니라 원본 프레임 좌표(Jetson이 요청에 실어 보낸 것,
  * adas_roi_bbox_t 그대로)여야 한다. 버퍼가 꽉 찼으면(공통 상한

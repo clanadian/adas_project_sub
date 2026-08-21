@@ -27,6 +27,10 @@ struct MjpegServerConfig {
     std::uint16_t port{8080};
     int jpeg_quality{80};
 
+    // 성공한 분류 결과도 이 confidence 미만이면 화면에는 그리지 않는다.
+    // proposal과 PL 실행에는 영향을 주지 않는 순수 시각화 임계값이다.
+    std::uint32_t overlay_min_confidence_ppm{600000};
+
     // 클라이언트 소켓 send()에 거는 타임아웃(SO_SNDTIMEO).
     // 이 시간 안에 못 보내면 그 프레임은 건너뛴다.
     // 절대 이 값을 늘려서 "기다리게" 만들지 않는다 -
