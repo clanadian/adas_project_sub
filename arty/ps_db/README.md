@@ -4,14 +4,15 @@
 
 ```text
 TCP server
-→ 96×96×3 RGB UINT8 수신
+→ 원본 bbox + 96×96×3 RGB UINT8 수신
 → q = round(pixel × 127 / 255)
 → 98×98×3 INT8 zero-padding
 → DDR buffer 설정
 → classifier_top start/done
 → 12×12×64 INT8
 → GAP/FC/argmax
-→ TCP response
+├→ TCP response → Jetson overlay
+└→ SafetyJudge/HazardLatch → UART1 → TurtleBot Raspberry Pi
 ```
 
 ## Components
@@ -29,6 +30,8 @@ TCP server
 | `classifier_model` | Conv/FC 바이너리 로드·크기 검사 | 구현·테스트 |
 | GAP/FC/argmax | PL 출력 후처리 | 구현·실보드 bit-exact 검증 완료 |
 | `adas_classifier_confidence_ppm` | logits×logits_scale → softmax → confidence_ppm | 구현·golden 벡터 일치 확인 |
+| `ps_safety_bridge` | bbox+분류 결과를 프레임별로 모아 안전 상태 판단 | 구현 |
+| `SafetyTransmitter` / `UartPort` | 20 ms 주기 3-byte 안전 프레임 송신 | 구현·단위 계층 테스트 |
 
 `실보드 검증`은 `ps_db_golden_test`(PL 출력 bit-exact 대조)와 실제 Jetson 카메라
 연동 테스트로 확인한 것이다. 자세한 내용과 수치는
@@ -66,6 +69,21 @@ Dummy server:
 ```bash
 ./arty/ps_db/build/ps_classifier_server
 ```
+
+최종 DB 보드에서 TurtleBot 제어까지 켜려면 UART1을 지정한다. 지정하지 않으면
+분류 서버만 동작한다.
+
+```bash
+ADAS_UART_PORT=/dev/ttyPS1 ADAS_UART_BAUD=115200 \
+./arty/ps_db/build/ps_classifier_server "*" 5000 \
+  arty/models/roi_classifier_int8_db/export \
+  6 1 1342756158 38 1322019071 35 1920779908 38 \
+  2.9190799511495295e-05
+```
+
+UART0(`/dev/ttyPS0`)은 Linux 콘솔이다. UART1은 EMIO를 거쳐
+JA1(`Y18`, TXD)·JA2(`Y19`, RXD)로 나온다. Raspberry Pi와 TX/RX를 교차하고
+GND를 공통으로 연결한다.
 
 배포용 INT8 모델과 golden은 다음 위치에 있다.
 

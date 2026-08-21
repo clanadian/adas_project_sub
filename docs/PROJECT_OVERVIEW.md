@@ -51,7 +51,8 @@ TCP로 연결해, **탐지는 GPU가, 분류는 FPGA가** 담당하도록 역할
  │        ▲                    │  ROI1  │   │ Conv/ReLU/Pool ×3         │  │
  │  분류 결과 수신 ◀───────────┼────────┼───│ → 12×12×64 feature map    │  │
  │        │                    │        │   └───────────────────────────┘  │
- │  MJPEG 오버레이 스트리밍    │        │                                  │
+ │  MJPEG 오버레이 스트리밍    │        │ PS: bbox+class 안전 판단          │
+ │                             │        │     → UART1 → TurtleBot RPi       │
  └─────────────────────────────┘        └──────────────────────────────────┘
 ```
 
@@ -73,7 +74,7 @@ V4L2 YUYV 640×360
   → YOLOv8n 후보 bbox (최대 10개, class-agnostic)
   → 가로·세로 15% 여백 → 긴 변 기준 정사각 확장 → 프레임 밖은 검정 padding
   → 96×96 INTER_LINEAR resize → BGR→RGB
-  ── TCP ──▶ 96×96×3 RGB UINT8 (27,648 B)
+  ── TCP ──▶ 원본 bbox 28 B + 96×96×3 RGB UINT8 (27,648 B)
 
   → q = clamp(round(pixel × 127 / 255), 0, 127)        ← PS, symmetric INT8
   → 1픽셀 zero border
@@ -86,7 +87,7 @@ V4L2 YUYV 640×360
 
 | 구간 | 형식 | 크기 |
 | --- | --- | ---: |
-| Jetson → PS | 96×96×3 RGB UINT8 NHWC | 27,648 B |
+| Jetson → PS | bbox + 96×96×3 RGB UINT8 NHWC | 28 + 27,648 B |
 | PS → PL | 98×98×3 signed INT8 NHWC (zero border) | 28,812 B |
 | PL → PS | 12×12×64 signed INT8 NHWC | 9,216 B |
 | PS → Jetson | status, class_id, confidence_ppm | 12 B |
@@ -166,6 +167,8 @@ POSTPROCESS_ERROR`를 구분한다. TCP가 메시지 경계를 보장하지 않�
 | GAP / FC / argmax | PL feature map 후처리 → class_id |
 | `classifier_confidence` | logits × logits_scale → softmax → `confidence_ppm` |
 | `dummy_roi_service` | PL 없이 고정 결과를 돌려주는 시험용 서버 |
+| `ps_safety_bridge` | bbox와 분류 결과를 프레임별로 결합해 안전 상태 판단 |
+| `SafetyTransmitter` / `UartPort` | UART1으로 20 ms 주기 안전 프레임 송신 |
 
 입력·가중치·출력 버퍼는 커널 드라이버가 `dma_alloc_coherent()`로 잡은 DDR에
 있고, 사용자 공간 프로그램은 그 영역을 `mmap()`으로 직접 다룬다. PL의 AXI
@@ -354,8 +357,9 @@ docs/
 ```
 
 `common/`은 이전 KR260 기반 시스템에서 가져온 안전 판단 계층
-(SafetyJudge / HazardLatch / UART frame)이다. 힙 할당·예외·STL 없이 작성되어
-있어 Jetson 제어 계층이 그대로 링크한다.
+(SafetyJudge / HazardLatch / UART frame)이다. 최종 DB 구성에서는 Arty PS가
+이를 링크해 판단과 UART 송신을 수행하며, Jetson 구현은 대체 경로와 호스트
+테스트 기준으로 유지한다.
 
 ---
 

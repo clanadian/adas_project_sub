@@ -102,6 +102,31 @@ bool env_flag(const char* name) {
 }
 
 /*
+ * For the judge thresholds. All of them are normalized 0..1 ratios, so a
+ * value outside that range falls back - a single typo that swings a gate
+ * fully open or shut is hard to trace back on the real board.
+ */
+float env_ratio(const char* name, float fallback) {
+    const char* const text = std::getenv(name);
+    if (text == nullptr || *text == '\0') {
+        return fallback;
+    }
+    try {
+        const float value = std::stof(text);
+        if (!(value >= 0.0F) || !(value <= 1.0F)) {
+            std::cerr << "warning: " << name << " out of range [0,1], using "
+                      << fallback << '\n';
+            return fallback;
+        }
+        return value;
+    } catch (...) {
+        std::cerr << "warning: " << name << " is not a number, using "
+                  << fallback << '\n';
+        return fallback;
+    }
+}
+
+/*
  * ---------------------------------------------------------------------------
  * 제어 계층 (TurtleBot 안전 상태 송신)
  * ---------------------------------------------------------------------------
@@ -346,7 +371,56 @@ int main(int argc, char** argv) {
     decider_config.judge.classes = projectClassMap();
     decider_config.latch.release_ms = 200u;
     decider_config.latch.release_frames = 3u;
+
+    /*
+     * The judge gates depend on how the camera is mounted. Hardcoding them
+     * means a rebuild for every single value change, which makes tuning on
+     * the real board impractical.
+     */
+    decider_config.judge.sign_slow_height =
+        env_ratio("ADAS_SIGN_SLOW_HEIGHT", decider_config.judge.sign_slow_height);
+    decider_config.judge.stop_height =
+        env_ratio("ADAS_STOP_HEIGHT", decider_config.judge.stop_height);
+    decider_config.judge.slow_height =
+        env_ratio("ADAS_SLOW_HEIGHT", decider_config.judge.slow_height);
+    decider_config.judge.zone_y_min =
+        env_ratio("ADAS_ZONE_Y_MIN", decider_config.judge.zone_y_min);
+    decider_config.judge.zone_x_min =
+        env_ratio("ADAS_ZONE_X_MIN", decider_config.judge.zone_x_min);
+    decider_config.judge.zone_x_max =
+        env_ratio("ADAS_ZONE_X_MAX", decider_config.judge.zone_x_max);
+    decider_config.judge.min_score =
+        env_ratio("ADAS_MIN_SCORE", decider_config.judge.min_score);
+
+    /*
+     * If zone_x is inverted, the range check in judgeOne always fails and
+     * **nothing is ever judged a hazard** - braking disappears silently,
+     * so this has to be visible rather than merely logged.
+     */
+    if (decider_config.judge.zone_x_min > decider_config.judge.zone_x_max) {
+        std::cerr << "ADAS_ZONE_X_MIN > ADAS_ZONE_X_MAX: nothing would ever "
+                     "be judged as a hazard\n";
+        return EXIT_FAILURE;
+    }
+    if (decider_config.judge.slow_height > decider_config.judge.stop_height) {
+        std::cerr << "warning: ADAS_SLOW_HEIGHT > ADAS_STOP_HEIGHT, Slow "
+                     "state is unreachable\n";
+    }
     adas::control::SafetyDecider decider(decider_config);
+
+    /*
+     * Record which gates this run used. Once the values are tunable from the
+     * environment, "what were they at the time" becomes a precondition for
+     * reading any measurement taken from this run.
+     */
+    std::cout << "safety judge: sign_slow_height="
+              << decider_config.judge.sign_slow_height
+              << " stop_height=" << decider_config.judge.stop_height
+              << " slow_height=" << decider_config.judge.slow_height
+              << " zone_x=[" << decider_config.judge.zone_x_min << ','
+              << decider_config.judge.zone_x_max << ']'
+              << " zone_y_min=" << decider_config.judge.zone_y_min
+              << " min_score=" << decider_config.judge.min_score << '\n';
 
     if (uart_path != nullptr && *uart_path != '\0') {
         if (!uart.open(uart_path, uart_baud)) {

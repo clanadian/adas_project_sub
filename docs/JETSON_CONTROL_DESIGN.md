@@ -1,9 +1,13 @@
-# Jetson 제어 로직 설계
+# TurtleBot 안전 제어 로직 설계
 
-Arty에서 받은 분류 결과로 TurtleBot을 제어하는 계층의 설계다.
+Arty 분류 결과와 Jetson 원본 bbox를 결합해 TurtleBot을 제어하는 계층의
+설계다. 초기 구현은 Jetson에서 판단·송신했지만, **최종 DB 구성에서는 같은
+공통 로직을 Arty PS의 `ps_safety_bridge`가 실행하고 UART1으로 직접 송신한다.**
+Jetson 제어 클래스는 호스트 단위 테스트와 대체 경로로 유지한다.
 
-- 상태: **구현 완료, 실보드 데모 1회 진행(2026-08-20).** 코드는
-  `jetson/src/control/`, 단위 테스트 3종 통과. 그 데모에서 검출 0건
+- 상태: **구현 완료, 실보드 데모 1회 진행(2026-08-20).** 공통 코드는
+  `common/`, 최종 결선은 `arty/ps_db/src/control/ps_safety_bridge.cpp`다.
+  그 데모에서 검출 0건
   프레임 때문에 Stop이 계속 걸려 바퀴가 안 도는 문제를 발견·수정했다(§6
   heartbeat ROI). §11 캘리브레이션은 여전히 임시값(KR260 값 그대로)이다.
 - 설정값은 전부 기본값을 정해 두었다(§10). 구현을 시작하기 위해 기다려야 하는
@@ -13,7 +17,24 @@ Arty에서 받은 분류 결과로 TurtleBot을 제어하는 계층의 설계다
 
 ---
 
-## 1. 구조
+## 1. 최종 구조
+
+```text
+Jetson: 카메라 → proposal → 원본 bbox + ROI
+                         │ ROI1 v2 TCP
+                         ▼
+Arty PS: bbox 수신 → PL 분류 → bbox+class 안전 판단
+                         ├→ 결과 TCP 회신 → Jetson overlay
+                         └→ 20 ms 송신 스레드 → UART1 → Raspberry Pi
+                                                        → ROS2 /cmd_vel
+```
+
+UART0은 Linux 콘솔로 유지한다. UART1은 EMIO로 나와 Arty Z7-20 PMOD
+JA1(`Y18`, TXD)·JA2(`Y19`, RXD)에 배치된다.
+
+아래 Jetson 스레드 그림은 최초 구현과 호스트 테스트 구조다. 최종 PS 경로도
+같은 `SafetyJudge`·`HazardLatch`·`SafetyTransmitter`를 사용하며, 실행 위치만
+Jetson에서 Arty PS로 옮겨졌다.
 
 ```text
 ┌─ Jetson Nano ───────────────────────────────────────────────────────┐
@@ -69,15 +90,12 @@ struct SafetyDecision {
 20 ms에 한 번 읽고 프레임마다 한 번 쓴다. 경합이 없으므로 `std::mutex` 하나면
 충분하다.
 
-### 왜 판단이 Jetson인가
+### 왜 bbox를 PS까지 보내는가
 
-Arty는 96×96 픽셀만 받는다. 그 crop이 **화면 어디에 있었는지, 얼마나 컸는지를
-구조적으로 알 수 없다.** 경로 판정과 거리 추정이 전부 bbox 기하에 의존하므로
-판단은 bbox를 가진 쪽에 있어야 한다.
-
-ROI 프로토콜에 bbox를 실어 Arty가 판단하게 만들 수도 있지만, 그러면 임계값
-하나 바꾸는 데 보드 바이너리를 다시 올려야 한다. **Arty는 "이 96×96이
-무엇인가"만 답하는 순수 함수로 남긴다.**
+96×96 crop만으로는 원본 화면에서의 위치와 크기를 복원할 수 없다. 최종
+ROI1 v2 프로토콜은 원본 bbox·objectness·프레임 크기를 이미지 앞에 실어
+보낸다. 따라서 Arty PS가 PL의 class와 Jetson의 기하 정보를 결합해 경로·거리
+판단을 수행할 수 있다.
 
 ---
 
@@ -149,13 +167,14 @@ y2 = (bbox.y + bbox.height) / frame_height
 | 0 | background | **버린다.** 분류기가 명시적으로 "물체 아님"이라고 한 것이다 |
 | 1 | car | 경로 안 + 가까움 → Stop / 중간 → Slow |
 | 2 | person | car와 동일 |
-| 3 | sign_warning | 경로 안이면 거리와 무관하게 **Stop** |
+| 3 | sign_warning | 경로 안 + 높이 기준 충족 → **Slow**, Stop 없음 |
 | 4 | sign_prohibition | 동일 |
 | 5 | sign_mandatory | 동일 |
 
-**표지판에 거리 기준을 두지 않는 이유:** 모델이 개별 표지가 아니라 종류만
-구분한다. "무슨 표지인지" 모르는 상태에서 거리로 무시할 근거가 없으므로,
-경로 안에 보이면 일단 멈춘다. 반복 정지는 §4의 래치가 막는다.
+**표지판을 Slow로 제한하는 이유:** 모델이 개별 정지표지판을 구분하지 못한다.
+모든 표지판에 정지를 걸면 오동작 비용이 크므로, 진행 경로 안에서 bbox 높이가
+`sign_slow_height` 이상인 경우만 감속한다. 표지판은 Stop을 만들지 않아
+HazardLatch에도 들어가지 않는다.
 
 **car/person과 표지판을 가르는 게이트가 다른 이유:** car/person은 바닥에
 닿는 대상이라 박스 아랫변 위치가 실제 거리와 상관이 있다. 표지판은 세워둔
@@ -177,7 +196,8 @@ car/person: 박스 아랫변 y2 >= zone_y_min 이어야 경로 안으로 본다
             높이 >= stop_height  → Stop
             높이 >= slow_height  → Slow
 
-표지판    : 경로 안이면 Stop (높이·아랫변 게이트 없음)
+표지판    : 경로 안이고 height >= sign_slow_height이면 Slow, 그 외 Clear
+            (아랫변 게이트 없음, Stop은 만들지 않음)
 ```
 
 한 프레임에서 **가장 위험한 것 하나**가 그 프레임의 상태다. 하나라도 Stop이면
@@ -345,7 +365,7 @@ CRC 구현 검증값: ASCII `"123456789"` → `0xF4`. 양측이 이 값을 내�
 
 | 항목 | 값 |
 | --- | --- |
-| 방향 | Jetson TX → RPi RX 단방향 |
+| 방향 | Arty PS UART1 TX → RPi RX 단방향 |
 | ACK / 재전송 | 없음 |
 | 주기 | 20 ms (50 Hz), 상태 변화와 무관하게 매번 |
 | **STOP 진입 시** | **즉시 1회 추가 송신 후 주기 재개** |
@@ -366,23 +386,19 @@ Arty와의 통신에 이미 Ethernet을 쓰고 있으니 RPi도 TCP로 붙이는
 
 ### 7.4 배선
 
-Jetson Nano 40핀 헤더의 UART(`/dev/ttyTHS1`).
+Arty Z7-20 PS UART1(`/dev/ttyPS1`)을 사용한다.
 
 ```text
-Jetson pin 8  (UART TXD)  →  RPi pin 10 (GPIO15 / RXD)
-Jetson pin 6  (GND)       ─  RPi pin 6   (GND)
-RPi pin 8 (TXD)              연결하지 않음 (단방향)
+Arty PMOD JA1 / Y18 (UART1 TXD) → RPi pin 10 (GPIO15 / RXD)
+Arty PMOD JA2 / Y19 (UART1 RXD) ← RPi pin 8  (GPIO14 / TXD)
+Arty PMOD GND                  ─ RPi pin 6  (GND)
 ```
 
-- **8·10번 교차.** 양쪽 헤더 핀아웃이 같아 그대로 꽂으면 TX–TX가 되어 통신이
-  되지 않는다. 커넥터 모양이 같아 그냥 꽂고 싶어지는 형태라 특히 주의한다.
+- TX와 RX는 교차한다. 단방향 제어만 쓸 때는 Arty TX·RPi RX·GND 세 선이면
+  충분하지만, 수신 확인을 위해 RX도 배선해 두는 편이 낫다.
 - **공통 GND 필수.** 신호선만 연결하면 통신이 안 되거나 간헐적으로 깨진다.
 - 양쪽 3.3 V — 레벨 시프터 불필요. 배선 전에 실측으로 한 번 더 확인한다.
-- **`nvgetty` 비활성화.** Jetson Nano는 기본적으로 `ttyTHS1`에 serial console이
-  붙어 있어, 안 끄면 콘솔 출력이 frame에 섞인다.
-  `sudo systemctl disable --now nvgetty`
-- 초기 브링업에는 **USB–TTL 어댑터**가 편하다. 배선 실수 위험이 낮고
-  `/dev/ttyUSB0`으로 잡힌다. 포트 이름만 설정값으로 두면 나중에 교체된다.
+- UART0(`/dev/ttyPS0`)은 Linux 콘솔이므로 제어에 사용하지 않는다.
 
 ---
 

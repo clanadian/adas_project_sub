@@ -10,8 +10,9 @@ V4L2 YUYV
 → square expansion + black padding
 → 96×96 INTER_LINEAR
 → BGR→RGB
-→ TCP request
+→ TCP request (원본 bbox + ROI image)
 → classification response
+→ 결과 overlay
 ```
 
 ## Components
@@ -49,7 +50,7 @@ TensorRT engine은 Jetson Nano에서 생성하며 저장소에는 커밋하지 �
 ## TCP input/output
 
 ```text
-request : frame_id, roi_id, 96×96×3 RGB UINT8
+request : frame_id, roi_id, 원본 bbox/objectness/frame 크기, 96×96×3 RGB UINT8
 response: frame_id, roi_id, status, class_id, confidence_ppm
 ```
 
@@ -112,22 +113,17 @@ Run:
     models/proposal/export/proposal_yolov8n_fp16.engine [mjpeg-port]
 ```
 
-## 제어 (TurtleBot 안전 상태)
+## 제어 코드의 위치와 최종 운용
 
-분류 결과로 안전 상태(`CLEAR`/`SLOW`/`STOP`)를 판단해 3-byte UART 프레임으로
-Raspberry Pi에 보낸다. 송신은 **20 ms 고정 주기의 별도 스레드**이고, 분류
-루프는 최신 판단만 갱신한다 — 프레임률이 ROI 개수에 따라 흔들려도 링크가
-끊기지 않게 하기 위해서다.
+Jetson에 구현된 `DetectionAdapter`·`SafetyDecider`·`SafetyTransmitter`는
+초기 제어 경로와 호스트 단위 테스트를 위해 유지한다. **최종 DB 구성의 제어
+주체는 Arty PS**다. Jetson은 원본 bbox를 ROI1 v2 요청에 실어 보내고, Arty
+PS가 분류 결과와 결합해 안전 상태를 판단한 뒤 `/dev/ttyPS1`로 전송한다.
 
-```bash
-sudo systemctl disable --now nvgetty        # ttyTHS1의 serial console 해제
-ADAS_UART_PORT=/dev/ttyTHS1 \
-./jetson/build/jetson_roi_client /dev/video0 <PS_IP> 5000 <engine>
-```
-
-`ADAS_UART_PORT`가 없으면 제어 계층을 켜지 않고 기존과 동일하게 동작한다.
-설계·배선·캘리브레이션 절차는
-[`../docs/JETSON_CONTROL_DESIGN.md`](../docs/JETSON_CONTROL_DESIGN.md).
+따라서 최종 실행에서는 Jetson의 `ADAS_UART_PORT`를 설정하지 않는다. 이 변수를
+지정하면 기존 Jetson 직접 UART 경로가 켜지므로, PS 송신과 동시에 사용하면 안
+된다. 판단 규칙과 watchdog 설계는
+[`../docs/JETSON_CONTROL_DESIGN.md`](../docs/JETSON_CONTROL_DESIGN.md)를 본다.
 
 검출 0건 프레임에서도 판단 watchdog이 죽지 않도록 heartbeat ROI를 주기적으로
 보낸다(`ADAS_EMPTY_FRAME_HEARTBEAT`, 기본 켜짐) — 안 하면 빈 화면에서 Stop이
@@ -135,10 +131,10 @@ ADAS_UART_PORT=/dev/ttyTHS1 \
 
 | 컴포넌트 | 역할 |
 | --- | --- |
-| `DetectionAdapter` | bbox(Jetson) + class(Arty) → 판단용 레코드 |
-| `SafetyDecider` | 경로·거리 판단 → 정지 이벤트 래치 |
-| `SafetyTransmitter` | 20 ms 송신, 판단 watchdog, STOP 즉시 송신 |
-| `UartPort` | termios 래퍼 (테스트용 인터페이스 분리) |
+| `DetectionAdapter` | Jetson 대체 경로용 bbox+class 변환 |
+| `SafetyDecider` | 공통 판단 규칙의 Jetson 래퍼 및 테스트 기준 |
+| `SafetyTransmitter` | PS와 Jetson이 공유하는 20 ms 송신 구현 |
+| `UartPort` | PS와 Jetson이 공유하는 POSIX termios 구현 |
 
 ## 측정
 

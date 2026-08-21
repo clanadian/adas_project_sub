@@ -92,12 +92,73 @@ void testDistanceThresholds() {
     assert(decision.state == safety::State::Clear);
 }
 
-/* 표지판은 거리 기준을 쓰지 않는다. 경로 안에 보이면 곧바로 Stop 이다. */
-void testSignIgnoresDistance() {
-    SafetyDecider decider(makeConfig());
-    const auto decision = decider.decide(
-        {observationAt(0.5F, 0.3F, 0.05F, 4u)}, 0u);
-    assert(decision.state == safety::State::Stop);
+/*
+ * A sign yields Slow once it is big enough, and Clear while it is still far.
+ *
+ * Before the size gate existed, merely looking at a distant sign stopped the
+ * robot. That is the regression this test pins down.
+ */
+void testSignRequiresProximity() {
+    const auto config = makeConfig();
+    const float gate = config.judge.sign_slow_height;
+
+    /* Far - small in frame. No reaction at all. */
+    SafetyDecider far_case(config);
+    auto decision = far_case.decide(
+        {observationAt(0.5F, 0.3F, gate - 0.05F, 4u)}, 0u);
+    assert(decision.state == safety::State::Clear);
+    assert(decision.hazards == 1u);
+
+    /* Close - past the gate it slows down. */
+    SafetyDecider near_case(config);
+    decision = near_case.decide(
+        {observationAt(0.5F, 0.3F, gate + 0.05F, 4u)}, 0u);
+    assert(decision.state == safety::State::Slow);
+
+    /*
+     * Unlike car/person, zone_y_min (ground plane) is still not consulted: a
+     * sign is mounted rather than resting on the floor, so it sits high in the
+     * frame. bottom_y 0.3 is above zone_y_min (0.55) and it still reacted.
+     */
+
+    /* Outside the path column nothing happens, however large it looks. */
+    SafetyDecider side_case(config);
+    decision = side_case.decide(
+        {observationAt(0.05F, 0.3F, gate + 0.2F, 4u)}, 0u);
+    assert(decision.state == safety::State::Clear);
+}
+
+/*
+ * Signs never reach Stop, no matter how large they get.
+ *
+ * The classifier cannot separate a stop sign from any other sign, so halting
+ * on one was wrong more often than right. Slow is the ceiling. A regression
+ * here would bring back full braking on every sign the robot drives past.
+ */
+void testSignNeverStops() {
+    const auto config = makeConfig();
+
+    for (std::uint32_t class_id = 3u; class_id <= 5u; ++class_id) {
+        for (float height = 0.5F; height <= 1.0F; height += 0.1F) {
+            SafetyDecider decider(config);
+            const auto decision =
+                decider.decide({observationAt(0.5F, 0.3F, height, class_id)}, 0u);
+            assert(decision.state != safety::State::Stop);
+        }
+    }
+
+    /*
+     * A sign holds Slow for as long as it stays in view - it never opens a
+     * latch event, so there is no hold-then-release cycle to wait out.
+     */
+    SafetyDecider decider(config);
+    const std::vector<RoiObservation> sign = {
+        observationAt(0.5F, 0.3F, config.judge.sign_slow_height + 0.1F, 3u)
+    };
+    assert(decider.decide(sign, 0u).state == safety::State::Slow);
+    assert(decider.decide(sign, 5000u).state == safety::State::Slow);
+    /* Gone from view means Clear immediately, with no hold to expire. */
+    assert(decider.decide({}, 5001u).state == safety::State::Clear);
 }
 
 /*
@@ -162,11 +223,17 @@ void testHoldAndRelease() {
     assert(decider.decide(stopper, 4003u).state == safety::State::Clear);
 
     /* 다른 class 가 새로 위험 수준이면 즉시 새 이벤트다. */
-    SafetyDecider other(makeConfig());
+    const auto config = makeConfig();
+    SafetyDecider other(config);
     assert(other.decide(stopper, 1000u).state == safety::State::Stop);
     assert(other.decide({}, 4001u).state == safety::State::Clear);
-    assert(other.decide({observationAt(0.5F, 0.3F, 0.05F, 4u)}, 4002u).state
-           == safety::State::Stop);
+    /*
+     * person (2), not a sign: signs cap at Slow and so can never open a latch
+     * event. The interrupting class has to be one that can actually reach Stop.
+     */
+    const float gate = config.judge.stop_height;
+    assert(other.decide({observationAt(0.5F, 0.9F, gate + 0.05F, 2u)}, 4002u)
+               .state == safety::State::Stop);
 }
 
 /*
@@ -215,7 +282,8 @@ void testForceStopBypassesLatch() {
 int main() {
     testStartsStoppedAndClearsWhenEmpty();
     testDistanceThresholds();
-    testSignIgnoresDistance();
+    testSignRequiresProximity();
+    testSignNeverStops();
     testUnclassifiedUsesGeometry();
     testBackgroundDoesNotStop();
     testHoldAndRelease();

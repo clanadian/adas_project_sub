@@ -61,6 +61,7 @@ State HazardLatch::update(const DetectionRecord* items, size_t count,
     //4. Stop급이 새로 나오면(Idle에서 처음이든, Released 중 다른 class가
     //   끼어들든) 새 이벤트를 시작한다.
     if (worst == State::Stop) {
+        //Only car/person get here - judgeOne caps signs at Slow.
         phase_         = Phase::Holding;
         latched_class_ = worst_class;
         hold_until_ms_ = now_ms + config_.hold_ms;

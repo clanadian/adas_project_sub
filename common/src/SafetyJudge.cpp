@@ -49,12 +49,18 @@ State judgeOne(const DetectionRecord& det, const JudgeConfig& config) {
     }
 
     if (is_sign) {
-        //표지판은 zone_y_min(ground-plane) 게이트를 안 쓴다. car/person처럼
-        //바닥에 발·바퀴가 닿는 대상이 아니라 세워두는 물건이라 화면 아래쪽에
-        //찍힐 이유가 없다. 높이 임계값도 안 쓴다 — 경로 안에 보이면 곧바로
-        //Stop이다. "표지판을 봤으면 일단 멈춘다"는 의도이고, 반복 트리거
-        //방지·일정 시간 뒤 재출발은 HazardLatch가 이 위에서 처리한다.
-        return State::Stop;
+        //No zone_y_min (ground-plane) gate for signs: they are mounted on
+        //walls and posts rather than resting on the ground, so their bottom
+        //edge carries no distance information and requiring it to sit low in
+        //the frame would miss a sign directly ahead.
+        //
+        //Height stands in for distance instead. **Slow is the strongest state
+        //a sign can produce** - the classifier cannot tell a stop sign from
+        //any other sign, so a full halt would be wrong more often than right.
+        if (height >= config.sign_slow_height) {
+            return State::Slow;
+        }
+        return State::Clear;
     }
 
     //car/person: 아랫변을 기준으로 삼는다. 사람의 발이 닿는 지점이 실제

@@ -57,6 +57,28 @@ struct JudgeConfig {
     float stop_height = 0.45f;
     float slow_height = 0.25f;
 
+    //Sign-only distance gate. A sign at or above this box height yields Slow.
+    //
+    //**Signs never produce Stop.** Team decision: the classifier only
+    //separates signs into broad categories, not individual signs, so there is
+    //no way to tell "stop sign" from any other sign - and reacting to all of
+    //them with a full stop was wrong far more often than it was right. A sign
+    //that is misjudged now costs a needless slowdown instead of a needless
+    //halt, which is the cheaper failure by a wide margin.
+    //
+    //Height is used rather than area (w*h). The frame is 16:9, so the vertical
+    //axis saturates first: at 640x360 "50% of area" means a 339px side, which
+    //is 94% of the height and effectively unreachable. A height ratio is not
+    //affected by aspect ratio.
+    //
+    //0.50 = 180px out of 360px, half the frame height. Lower than the old Stop
+    //gate (0.62) on purpose: the point of a Slow is to react while still
+    //approaching, and an early Slow costs little. This number is a property of
+    //the camera mount, so the default here is only a starting point -
+    //jetson_roi_client overrides it via ADAS_SIGN_SLOW_HEIGHT, and that is
+    //where tuning happens.
+    float sign_slow_height = 0.50f;
+
     //이 점수 미만은 무시한다. decode 단계의 threshold와 별개로,
     //안전 판단에서는 더 확실한 것만 보고 싶을 수 있다.
     float min_score = 0.25f;
@@ -77,11 +99,18 @@ inline constexpr int32_t kClassSignMandatory   = 4;
 bool isHazardClass(int32_t class_id, const ClassMap& classes);
 bool isHazardClass(int32_t class_id);
 
-//표지판 3종. 모델이 개별 표지가 아니라 분류 단위로만 구분해 규제·경고·지시를
-//더 세분화할 수 없다. 경로 안에 있으면 곧바로 Stop이다 — 높이(거리 대용)는
-//보지 않는다. 반복 트리거 방지(같은 표지판을 지나칠 때 계속 멈추지 않는 것)와
-//일정 시간 뒤 재출발은 여기서 다루지 않는다. `HazardLatch`(SafetyHazardLatch.hpp)
-//의 몫이다 — car/person/표지판 전부 같은 방식으로 다룬다.
+//The three sign categories. The model separates signs only by category, not
+//by individual sign, so "stop sign" cannot be told apart from the rest.
+//
+//A sign inside the path (zone_x) whose box height reaches sign_slow_height
+//yields **Slow, never Stop**. Unlike car/person there is no zone_y_min
+//(ground-plane) gate - a sign is mounted on a wall or post rather than
+//resting on the ground, so it has no reason to appear low in the frame, and
+//requiring that would miss a sign directly ahead.
+//
+//Because signs never reach Stop, they never open a HazardLatch event either:
+//the latch triggers on Stop only. A sign therefore holds Slow for as long as
+//it stays big enough in the path, rather than firing once and releasing.
 bool isSignClass(int32_t class_id, const ClassMap& classes);
 bool isSignClass(int32_t class_id);
 

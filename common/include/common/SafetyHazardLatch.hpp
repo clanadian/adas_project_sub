@@ -4,9 +4,13 @@
 
 #include "common/SafetyJudge.hpp"
 
-//"표지판/사람/차를 봤으면 정지 → T ms 유지 → 출발 → 같은 대상을 다시
-//트리거로 세지 않음(N프레임 연속으로 안 보일 때까지) → 다음은 새 이벤트"를
-//구현한다. 팀 결정: 세 클래스 전부 이 방식으로 동일하게 다룬다.
+//Implements "saw a hazard -> stop -> hold T ms -> go -> do not count the same
+//target as a trigger again (until it has been absent for N consecutive
+//frames) -> the next one is a new event".
+//
+//This applies to car/person only. Signs cannot reach Stop (they top out at
+//Slow), and the latch opens on Stop alone, so signs pass straight through
+//this layer untouched.
 //
 //judge()/judgeOne()과 다른 층이다. 그쪽은 "이번 프레임에 뭐가 보이는가"만
 //보는 순수 함수고, 이 클래스는 "이미 처리한 이벤트인가"를 기억한다.
@@ -28,6 +32,10 @@ public:
         //Stop을 무조건 유지하는 시간(T). 이 동안은 detection이 뭐라 해도
         //Stop을 낸다.
         uint64_t hold_ms = 3000;
+
+        //There is no sign-specific hold. Signs top out at Slow (see
+        //JudgeConfig::sign_slow_height), and the latch only ever opens on
+        //Stop, so a sign can never start a latched event in the first place.
 
         //래치를 풀기 위해 latched class가 연속으로 안 보여야 하는 프레임 수(N).
         uint32_t release_frames = 10;

@@ -23,13 +23,14 @@ Jetson: V4L2 YUYV → BGR CV_8UC3
         → persistent TCP client
 
 Arty PS Linux: TCP server
-         → RGB UINT8 수신
+         → 원본 bbox 메타데이터 + RGB UINT8 수신
          → signed INT8 양자화
          → 1픽셀 INT8 0 테두리 추가
          → 98×98×3 INT8 NHWC
          → PL 실행
          → GAP/FC/argmax
-         → 분류 결과 TCP 회신
+         ├→ 분류 결과 TCP 회신
+         └→ bbox+class 안전 판단 → UART1 → TurtleBot Raspberry Pi
 ```
 
 ## 2. Jetson ROI 계약
@@ -48,7 +49,8 @@ Arty PS Linux: TCP server
 - Jetson Nano Linux: TCP client
 - Arty Z7-20 PS Linux: POSIX socket TCP server
 - ROI마다 연결하지 않고 실행 중 하나의 TCP 연결을 유지한다.
-- 요청 payload: `96×96×3 = 27,648` bytes RGB UINT8 NHWC
+- protocol version: `2`
+- 요청 payload: bbox 블록 28 bytes + `96×96×3 = 27,648` bytes RGB UINT8 NHWC
 - 요청에는 최소한 `frame_id`, `roi_id`, payload length를 포함한다.
 - PS 응답에는 최소한 `frame_id`, `roi_id`, `class_id`, score를 포함한다.
 - TCP는 메시지 경계를 보장하지 않으므로, 송신·수신 코드는 지정된
@@ -62,13 +64,28 @@ Arty PS Linux: TCP server
 | offset | size | field |
 |---:|---:|---|
 | 0 | 4 | magic: ASCII `ROI1` |
-| 4 | 2 | version: `1` |
+| 4 | 2 | version: `2` |
 | 6 | 2 | message type: request `1`, response `2` |
 | 8 | 4 | frame ID |
 | 12 | 4 | ROI ID |
 | 16 | 4 | payload size |
 
-Request payload는 27,648 bytes RGB UINT8 NHWC 이미지다.
+Request payload는 28-byte bbox 블록 뒤에 27,648-byte RGB UINT8 NHWC
+이미지가 이어진다. bbox는 crop 좌표가 아니라 원본 프레임 좌표다.
+
+| bbox offset | size | field |
+|---:|---:|---|
+| 0 | 4 | x (`float32`) |
+| 4 | 4 | y (`float32`) |
+| 8 | 4 | width (`float32`) |
+| 12 | 4 | height (`float32`) |
+| 16 | 4 | objectness (`float32`) |
+| 20 | 4 | frame width (`uint32`) |
+| 24 | 4 | frame height (`uint32`) |
+
+`float32`도 IEEE-754 비트 패턴을 `uint32`로 옮긴 뒤 network byte order로
+직렬화한다.
+
 Response payload는 다음 12 bytes이다.
 
 | offset | size | field |
@@ -147,12 +164,22 @@ PL이 반환한 `12×12×64` feature map에 다음을 수행한다.
 GAP → FC 64×6 → logits → argmax
 ```
 
-GAP의 제수 `1/144`를 GAP에서 적용할지 FC scale에 흡수할지와
-FC 양자화 규칙은 학습·export 결과와 함께 최종 확정한다.
-두 곳에서 중복으로 적용하지 않는다.
+GAP은 144개 값을 합산하고 런타임 `gap-div=1`을 사용한다. `1/144`는 모델
+export의 FC scale에 흡수돼 있으므로 PS에서 다시 나누지 않는다.
 
-## 9. 미확정 항목
+분류 결과는 Jetson 시각화에 회신하는 동시에 PS 안전 판단에도 사용한다.
+현재 클래스별 제어 정책은 다음과 같다.
 
-- GAP/FC 정수 양자화 규칙
-- 학습 가중치 기반 레이어별 golden input/output
-- PS 빌드용 XSA 최종 배포 경로
+- car/person: bbox 위치·높이에 따라 `Clear/Slow/Stop`; Stop은 HazardLatch 적용
+- sign 3종: 경로 안에서 `sign_slow_height` 이상이면 `Slow`, 그 외 `Clear`
+- sign은 개별 정지표지판을 구분할 수 없으므로 `Stop`을 만들지 않고 래치되지 않음
+- 링크·카메라 판단 불능은 래치를 우회해 즉시 `Stop`
+
+## 9. UART 계약
+
+- UART0: MIO 14..15, Linux console, `/dev/ttyPS0`
+- UART1: EMIO, 115200 8N1, `/dev/ttyPS1`
+- UART1 TXD: Arty Z7-20 PMOD JA1 (`Y18`)
+- UART1 RXD: Arty Z7-20 PMOD JA2 (`Y19`)
+- Arty와 Raspberry Pi는 TX/RX를 교차하고 GND를 공통으로 연결한다.
+- wire frame: `0xA5`, state, CRC-8/SMBUS의 고정 3 bytes
