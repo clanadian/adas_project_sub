@@ -54,6 +54,12 @@ public:
     [[nodiscard]]
     TcpClientStatus setNoDelay(bool enable) noexcept;
 
+    /*
+     * 다음에 도착할 세그먼트를 지연 없이 ACK 한다.
+     * 왜 필요한지는 TcpRoiClient.cpp 의 classify() 4단계 주석에 있다.
+     */
+    void armQuickAck() noexcept;
+
     void disconnect() noexcept;
 
     [[nodiscard]]

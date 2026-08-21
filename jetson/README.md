@@ -129,6 +129,10 @@ ADAS_UART_PORT=/dev/ttyTHS1 \
 설계·배선·캘리브레이션 절차는
 [`../docs/JETSON_CONTROL_DESIGN.md`](../docs/JETSON_CONTROL_DESIGN.md).
 
+검출 0건 프레임에서도 판단 watchdog이 죽지 않도록 heartbeat ROI를 주기적으로
+보낸다(`ADAS_EMPTY_FRAME_HEARTBEAT`, 기본 켜짐) — 안 하면 빈 화면에서 Stop이
+나가고 로봇이 멈춘다. 자세한 이유는 위 설계 문서 §6.
+
 | 컴포넌트 | 역할 |
 | --- | --- |
 | `DetectionAdapter` | bbox(Jetson) + class(Arty) → 판단용 레코드 |

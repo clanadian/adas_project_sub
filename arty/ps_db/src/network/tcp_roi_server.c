@@ -280,33 +280,24 @@ adas_tcp_roi_status_t adas_tcp_roi_server_send_result(
         .payload_size = ADAS_ROI_RESULT_PAYLOAD_SIZE
     };
 
-    uint8_t header_buffer[ADAS_ROI_HEADER_SIZE];
-    uint8_t result_buffer[ADAS_ROI_RESULT_PAYLOAD_SIZE];
+    /*
+     * 헤더(20B)와 결과(12B)를 한 버퍼에 담아 write 한 번으로 보낸다.
+     *
+     * 두 번에 나눠 보내면 Nagle 이 두 번째 작은 write 를 "첫 20B 의 ACK 이
+     * 올 때까지" 붙들고, 받는 쪽 delayed-ACK 가 최대 40ms 뒤에 오므로 그
+     * 시간이 통째로 왕복에 얹힌다. 2026-08-20 실측에서 왕복 51.6ms 중
+     * 43ms 가 이 대기였다 (PS_TCP_RESPONSE_FIX.md).
+     */
+    uint8_t response_buffer[ADAS_ROI_HEADER_SIZE + ADAS_ROI_RESULT_PAYLOAD_SIZE];
 
-    adas_roi_encode_header(header_buffer, &response_header);
-    adas_roi_encode_result(result_buffer, result);
+    adas_roi_encode_header(response_buffer, &response_header);
+    adas_roi_encode_result(response_buffer + ADAS_ROI_HEADER_SIZE, result);
 
-    adas_tcp_roi_status_t status = send_all(
+    return send_all(
         server->client_fd,
-        header_buffer,
-        sizeof(header_buffer)
+        response_buffer,
+        sizeof(response_buffer)
     );
-
-    if (status != ADAS_TCP_ROI_OK) {
-        return status;
-    }
-
-    status = send_all(
-        server->client_fd,
-        result_buffer,
-        sizeof(result_buffer)
-    );
-
-    if (status != ADAS_TCP_ROI_OK) {
-        return status;
-    }
-
-    return ADAS_TCP_ROI_OK;
 }
 
 void adas_tcp_roi_server_disconnect(adas_tcp_roi_server_t* server) {

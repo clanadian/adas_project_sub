@@ -30,15 +30,12 @@
 
    첫 로그인이면 새 비밀번호를 설정하라고 나온다.
 
-6. 네트워크를 잡는다. `root=/dev/ram0`(initramfs)라 **재부팅하면 매번 다시
-   해야 한다.** 인터페이스 이름 확인 방법, 함정은
-   [`ARTY_NETWORK_SETUP.md`](ARTY_NETWORK_SETUP.md) 참고.
-
-   ```sh
-   IF=<dmesg 에서 확인한 이름>
-   sudo ip addr add 10.10.16.61/24 dev "$IF"
-   sudo ip route add default via 10.10.16.254
-   ```
+**네트워크는 따로 잡을 필요가 없다.** DB는 rootfs가 영속 ext4
+(`root=/dev/mmcblk0p2`)로 바뀌면서 `enx020000000020` → `10.10.16.61` 고정
+IP가 이미지에 recipe로 박혀 있다 — 재부팅해도 유지된다. 바로
+`ping 10.10.16.61`이 된다. (예전엔 initramfs라 매번 IP를 다시 잡아야
+했다 — 그 절차와 EB용 안내는
+[`ARTY_NETWORK_SETUP.md`](ARTY_NETWORK_SETUP.md) 참고.)
 
 ### 1.1 모델 업로드 (PC에서)
 
@@ -57,14 +54,14 @@ adas_classifier: loading out-of-tree module taints kernel.
 adas_classifier 40000000.classifier: DMA buffer at 0x1f060000, size 0x13000
 ```
 
-### 1.3 서버 빌드·업로드 (PC에서)
+### 1.3 서버 바이너리 (더 이상 직접 안 올려도 된다)
 
-`ps_classifier_server`는 아직 rootfs 레시피에 없다 — 매번 PC에서 크로스컴파일해서
-scp로 올린다(`ps_db_golden_test`는 이미 이미지에 들어있어 이 단계가 필요 없다).
+`ps_classifier_server`는 2026-08-20부터 `ps-classifier-server` 레시피로
+이미지에 편입돼서 `/usr/bin/ps_classifier_server`에 이미 있다 — SD 이미지를
+새로 굽기만 하면 따라온다. `ps_db_golden_test`도 마찬가지다.
 
-DB로 SD 부팅 이미지를 만들 때 이미 `petalinux-build`를 한 번 돌렸다면 아래
-명령이 그대로 된다 — 그 빌드 트리의 컴파일러·sysroot를 그대로 쓴다(EB
-바이너리를 만들 때도 이 DB 빌드 트리를 쓴다, 아래 §2.3 참고).
+**레시피 편입 전의 소스를 급하게 테스트하고 싶을 때만** 아래처럼 PC에서
+크로스컴파일해서 임시로 덮어쓴다(재부팅하면 이미지에 든 버전으로 되돌아간다).
 
 ```bash
 cmake -S arty/ps_db -B arty/ps_db/build_arm \
@@ -72,12 +69,20 @@ cmake -S arty/ps_db -B arty/ps_db/build_arm \
     -DCMAKE_BUILD_TYPE=Release
 cmake --build arty/ps_db/build_arm -j2 --target ps_classifier_server
 
-scp arty/ps_db/build_arm/ps_classifier_server petalinux@10.10.16.61:/home/petalinux/
+scp arty/ps_db/build_arm/ps_classifier_server petalinux@10.10.16.61:/tmp/
+ssh petalinux@10.10.16.61 'sudo cp /tmp/ps_classifier_server /usr/bin/ps_classifier_server'
 ```
 
 `-DCMAKE_TOOLCHAIN_FILE`은 절대경로(`$(pwd)/...`)로 준다 — 상대경로를 주면
 처음 `-B`로 빌드 디렉터리를 새로 만드는 configure에서 "toolchain file을 못
 찾는다"로 실패한다.
+
+소스를 고쳤다면 이 임시 방편 대신 SD 이미지 자체를 다시 굽는 쪽이 맞다 —
+`petalinux-build` → `petalinux-package boot --fsbl --fpga --u-boot --force`
+→ `images/linux/`를 `arty/deploy/db_sd_boot/`로 복사 → `burn_sd.sh db`.
+다만 **DB는 이제 rootfs가 SD카드 두 번째 파티션의 영속 ext4라, `burn_sd.sh`가
+다루는 BOOT.BIN/boot.scr/image.ub(첫 파티션) 갱신만으로는 그 파티션이
+안 바뀐다** — rootfs를 다시 쓰는 절차는 아직 스크립트로 안 만들어져 있다.
 
 ### 1.4 PL 골든 테스트 (선택)
 
@@ -96,7 +101,7 @@ report: golden_report
 ### 1.5 서버 실행
 
 ```sh
-sudo /home/petalinux/ps_classifier_server "*" 5000 /home/petalinux/model 6 1 \
+sudo ps_classifier_server "*" 5000 /home/petalinux/model 6 1 \
     1467099144 38 1160501223 35 1422046702 38 8.540366656652573e-06
 ```
 

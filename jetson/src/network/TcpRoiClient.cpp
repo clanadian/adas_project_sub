@@ -84,6 +84,24 @@ TcpClientStatus TcpRoiClient::setNoDelay(bool enable) noexcept {
     return TcpClientStatus::Ok;
 }
 
+void TcpRoiClient::armQuickAck() noexcept {
+#ifdef TCP_QUICKACK
+    if (socket_fd_ < 0) {
+        return;
+    }
+
+    const int value = 1;
+    /* 실패해도 동작에는 문제가 없다 - 느려질 뿐이다. */
+    (void)::setsockopt(
+        socket_fd_,
+        IPPROTO_TCP,
+        TCP_QUICKACK,
+        &value,
+        sizeof(value)
+    );
+#endif
+}
+
 void TcpRoiClient::disconnect() noexcept {
     if (socket_fd_ >= 0) {
         ::close(socket_fd_);
@@ -198,6 +216,22 @@ TcpClientStatus TcpRoiClient::classify(
     if (transfer_status != TcpClientStatus::Ok) {
         return transfer_status;
     }
+
+    /*
+     * PS는 응답을 헤더(20B) + 본문(12B) 두 번에 나눠 write 한다. 서버 쪽
+     * Nagle이 두 번째 write를 "첫 20B의 ACK이 올 때까지" 붙들기 때문에,
+     * 이쪽 delayed-ACK 타이머(~40ms)가 그대로 왕복 시간에 얹힌다.
+     *
+     * 2026-08-20 tcpdump 실측: 왕복 51.6ms 중 마지막 요청 바이트에서
+     * 응답 헤더까지가 8ms(가속기 6.6ms 포함)뿐이고, 헤더에서 본문까지가
+     * 40ms였다. 본문은 이쪽 ACK이 도착한 지 0.4ms 만에 나왔다.
+     *
+     * 근본 수정은 서버가 헤더+본문을 한 번에 write 하는 것이다. 그건
+     * Arty PS 쪽 변경이라, 여기서는 받는 쪽이 즉시 ACK을 보내 대기를
+     * 없앤다. Linux는 quickack을 몇 번 쓰면 스스로 되돌리므로 요청마다
+     * 다시 켠다.
+     */
+    armQuickAck();
 
     /* 4단계: PS가 돌려주는 응답 헤더를 정확히 한 개 받습니다. */
     std::array<std::uint8_t, ADAS_ROI_HEADER_SIZE> response_header_bytes{};

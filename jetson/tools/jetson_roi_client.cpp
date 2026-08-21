@@ -116,6 +116,11 @@ bool env_flag(const char* name) {
  *   ADAS_UART_PORT   : 안전 상태를 내보낼 포트. 없으면 제어 계층을 켜지 않고
  *                      기존과 동일하게 동작한다 (/dev/ttyTHS1 또는 /dev/ttyUSB0)
  *   ADAS_UART_BAUD   : 기본 115200
+ *   ADAS_EMPTY_FRAME_HEARTBEAT=0 : 검출 0건 프레임에 heartbeat ROI
+ *                      보내는 것을 끈다. 기본은 켜 둔다 - 아래 heartbeat_frame
+ *                      주석 참고. 순수 성능 측정만 할 때만 끈다.
+ *   ADAS_HEARTBEAT_INTERVAL_MS : heartbeat 최소 간격(기본 150 ms).
+ *                      PS 의 stale 판정(500 ms)보다 넉넉히 짧아야 한다.
  *   ADAS_CONTROL_ZONE_FILTER=1 : 경로 밖 후보를 분류 요청 전에 거른다.
  *                      결과는 바뀌지 않고(경로 밖은 어차피 Clear) 왕복만 준다.
  *                      기본은 꺼 둔다 - 켠 조건과 끈 조건을 각각 재고 정한다.
@@ -325,6 +330,11 @@ int main(int argc, char** argv) {
     const unsigned uart_baud =
         static_cast<unsigned>(env_ulong("ADAS_UART_BAUD", 115200ul));
     const bool zone_filter = env_flag("ADAS_CONTROL_ZONE_FILTER");
+    /* 기본 켜짐. 0 을 명시해야 꺼진다. */
+    const bool empty_frame_heartbeat =
+        env_ulong("ADAS_EMPTY_FRAME_HEARTBEAT", 1ul) != 0ul;
+    const std::uint64_t heartbeat_interval_ms =
+        static_cast<std::uint64_t>(env_ulong("ADAS_HEARTBEAT_INTERVAL_MS", 150ul));
 
     adas::control::PosixUartPort uart;
     adas::control::SteadySafetyClock safety_clock;
@@ -419,6 +429,8 @@ int main(int argc, char** argv) {
     const adas::roi::RoiCropper cropper;
     const adas::preprocess::RoiPreprocessor preprocessor;
     std::uint32_t frame_id = 0u;
+    /* Arty PS 로 마지막 요청을 보낸 시각. heartbeat 간격 판단에 쓴다. */
+    std::uint64_t last_request_ms = 0u;
 
     Metrics metrics;
     std::vector<RoiRecord> frame_records;
@@ -482,6 +494,46 @@ int main(int argc, char** argv) {
             }
             candidates.swap(inside);
         }
+
+        /*
+         * 검출 0건이어도 프레임당 요청 하나는 반드시 보낸다.
+         *
+         * 안전 판단은 Arty PS 가 한다. PS 는 요청이 온 프레임에서만
+         * 판단을 갱신하므로, ROI 가 없는 프레임을 통째로 건너뛰면
+         * 갱신이 끊긴다. 그러면 PS 의 stale watchdog 이 "판단 근거가
+         * 오래됐다"고 보고 Stop 을 낸다 - 빈 화면(=안전)인데 로봇이
+         * 멈춘다. 실제로 2026-08-20 데모에서 이것 때문에 STOP/CLEAR 가
+         * 쉴 새 없이 드나들고 바퀴가 안 도는 증상이 나왔다.
+         *
+         * objectness 를 0 으로 둔다. DetectionAdapter 가 min_objectness
+         * (0.25) 미만을 Rejected 로 버리므로 이 ROI 는 판단에 절대
+         * 끼지 않는다. 즉 위험 근거를 만들어내지 않고 "이 프레임은
+         * 살아 있고 볼 것이 없다"만 전달된다. bbox 도 이중 안전장치로
+         * 경로 영역 밖(화면 좌측 상단)에 둔다.
+         *
+         * 매 프레임 보내면 빈 화면에서 FPS 가 반토막난다(실측 29.3 ->
+         * 12.3 FPS). 그래서 "마지막 요청 이후 heartbeat_interval_ms 가
+         * 지났을 때만" 보낸다. 실제 ROI 요청도 같은 타이머를 갱신하므로,
+         * 물체가 보이는 동안에는 heartbeat 가 아예 나가지 않는다.
+         *
+         * 비용은 빈 프레임당 가속기 왕복 1회다. 측정에서는
+         * 이 ROI 를 metrics · overlay · CSV 에서 전부 제외한다 - 그래야
+         * "검출 0건 프레임"이라는 사실이 숫자에 그대로 남는다.
+         */
+        const std::uint64_t frame_ms = safety_clock.nowMs();
+        const bool heartbeat_frame =
+            empty_frame_heartbeat
+            && candidates.empty()
+            && (frame_ms - last_request_ms) >= heartbeat_interval_ms;
+        if (heartbeat_frame) {
+            candidates.push_back({
+                frame_id,
+                0u,
+                {0.0F, 0.0F, 32.0F, 32.0F},
+                0.0F
+            });
+        }
+
         const Clock::time_point t_propose = Clock::now();
 
         // 앞쪽 몇 프레임은 TensorRT 첫 추론과 카메라 안정화 때문에
@@ -540,7 +592,7 @@ int main(int argc, char** argv) {
             const std::int64_t crop_us = elapsed_us(t_roi_begin, t_crop);
             const std::int64_t rtt_us = elapsed_us(t_crop, t_rtt);
 
-            if (counted) {
+            if (counted && !heartbeat_frame) {
                 metrics.crop.add(crop_us);
                 metrics.rtt.add(rtt_us);
                 metrics.rois += 1;
@@ -551,7 +603,7 @@ int main(int argc, char** argv) {
                 });
             }
 
-            if (!quiet) {
+            if (!quiet && !heartbeat_frame) {
                 std::cout << "frame=" << result.frame_id
                           << " roi=" << result.roi_id
                           << " status=" << result.status
@@ -561,13 +613,21 @@ int main(int argc, char** argv) {
                           << '\n';
             }
 
-            overlays.push_back({
-                candidate.object_bbox,
-                classified ? result.status : kStatusNoReply,
-                classified ? result.class_id : UINT32_MAX,
-                classified ? result.confidence_ppm : 0u
-            });
-            ++roi_index;
+            /* heartbeat ROI 는 화면에 그리지 않는다 - 실제 검출이 아니다. */
+            if (!heartbeat_frame) {
+                overlays.push_back({
+                    candidate.object_bbox,
+                    classified ? result.status : kStatusNoReply,
+                    classified ? result.class_id : UINT32_MAX,
+                    classified ? result.confidence_ppm : 0u
+                });
+                ++roi_index;
+            }
+        }
+
+        /* 실제 ROI 든 heartbeat 든, 보냈으면 타이머를 갱신한다. */
+        if (!candidates.empty()) {
+            last_request_ms = safety_clock.nowMs();
         }
 
         /*
