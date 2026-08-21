@@ -41,6 +41,18 @@ Jetson Nano
 TCP는 persistent connection에서 ROI 한 건씩 요청·응답한다. Multi-byte 정수는
 network byte order를 사용한다.
 
+## 실기기 접속
+
+| 대상 | 명령 | 비밀번호 |
+| --- | --- | --- |
+| RPi (TurtleBot) | `ssh ubuntu@10.10.16.200` | `ubuntu` |
+| Jetson | `ssh -J ubuntu@10.10.16.200 jetson@192.168.100.2` | `123456` |
+| Arty DB | `ssh petalinux@10.10.16.61` | `123456` |
+
+Jetson은 RPi 뒤 사설망(`192.168.100.0/24`)에 있어서 RPi를 거쳐야 붙는다
+(`-J`가 그 경유지). Arty DB는 실습망(`10.10.16.0/24`)에 바로 있어서 경유
+없이 붙는다.
+
 ## Repository
 
 | 경로 | 내용 |
