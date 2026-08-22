@@ -94,8 +94,8 @@ ps_safety_handle_t* ps_safety_start(const char* uart_port, unsigned baud) {
     handle->judge_config.classes = projectClassMap();
 
     /* 최종 구조에서는 Arty PS가 판단하므로 카메라 의존 gate도 여기서 읽는다. */
-    handle->judge_config.sign_slow_height = ratioFromEnvironment(
-        "ADAS_SIGN_SLOW_HEIGHT", handle->judge_config.sign_slow_height);
+    handle->judge_config.sign_slow_width = ratioFromEnvironment(
+        "ADAS_SIGN_SLOW_WIDTH", handle->judge_config.sign_slow_width);
     handle->judge_config.stop_height = ratioFromEnvironment(
         "ADAS_STOP_HEIGHT", handle->judge_config.stop_height);
     handle->judge_config.slow_height = ratioFromEnvironment(
@@ -121,10 +121,10 @@ ps_safety_handle_t* ps_safety_start(const char* uart_port, unsigned baud) {
     }
 
     std::fprintf(stderr,
-        "safety judge: sign_slow_height=%.3f stop_height=%.3f "
+        "safety judge: sign_slow_width=%.3f stop_height=%.3f "
         "slow_height=%.3f zone_x=[%.3f,%.3f] zone_y_min=%.3f "
         "min_score=%.3f\n",
-        static_cast<double>(handle->judge_config.sign_slow_height),
+        static_cast<double>(handle->judge_config.sign_slow_width),
         static_cast<double>(handle->judge_config.stop_height),
         static_cast<double>(handle->judge_config.slow_height),
         static_cast<double>(handle->judge_config.zone_x_min),

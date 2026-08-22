@@ -34,7 +34,7 @@ public:
         uint64_t hold_ms = 3000;
 
         //There is no sign-specific hold. Signs top out at Slow (see
-        //JudgeConfig::sign_slow_height), and the latch only ever opens on
+        //JudgeConfig::sign_slow_width), and the latch only ever opens on
         //Stop, so a sign can never start a latched event in the first place.
 
         //래치를 풀기 위해 latched class가 연속으로 안 보여야 하는 프레임 수(N).

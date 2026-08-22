@@ -30,8 +30,9 @@ TCP server
 | `classifier_model` | Conv/FC 바이너리 로드·크기 검사 | 구현·테스트 |
 | GAP/FC/argmax | PL 출력 후처리 | 구현·실보드 bit-exact 검증 완료 |
 | `adas_classifier_confidence_ppm` | logits×logits_scale → softmax → confidence_ppm | 구현·golden 벡터 일치 확인 |
-| `ps_safety_bridge` | bbox+분류 결과를 프레임별로 모아 안전 상태 판단 | 구현 |
-| `SafetyTransmitter` / `UartPort` | 20 ms 주기 3-byte 안전 프레임 송신 | 구현·단위 계층 테스트 |
+| `ps_safety_bridge` | bbox+분류 결과를 프레임별로 모아 안전 상태 판단 | 구현 (정규화·fallback 매핑 계층은 단위 테스트 없음) |
+| `SafetyJudge` / `HazardLatch` (`common/`) | 거리·경로 판단과 정지 래치 | 구현·단위 테스트 (`test_safety_judge`) |
+| `SafetyTransmitter` / `UartPort` | 20 ms 주기 3-byte 안전 프레임 송신 | 구현·단위 테스트 (`test_safety_transmitter`) |
 
 `실보드 검증`은 `ps_db_golden_test`(PL 출력 bit-exact 대조)와 실제 Jetson 카메라
 연동 테스트로 확인한 것이다. 자세한 내용과 수치는
@@ -102,7 +103,7 @@ fail-safe 규칙을 적용한다.
 
 | 환경변수 | 기본값 | 의미 |
 | --- | ---: | --- |
-| `ADAS_SIGN_SLOW_HEIGHT` | `0.50` | 표지판 SLOW 최소 bbox 높이 |
+| `ADAS_SIGN_SLOW_WIDTH` | `0.20` | 표지판 SLOW 최소 bbox 폭 (2026-08-21부터 높이 대신 폭 사용 — 카메라가 표지판을 올려다보는 각도라 높이는 실제 거리보다 작게 잡힘) |
 | `ADAS_SLOW_HEIGHT` | `0.25` | 자동차·사람 SLOW 최소 높이 |
 | `ADAS_STOP_HEIGHT` | `0.45` | 자동차·사람 STOP 최소 높이 |
 | `ADAS_ZONE_Y_MIN` | `0.55` | 자동차·사람 bbox 아랫변의 최소 위치 |
@@ -114,7 +115,7 @@ fail-safe 규칙을 적용한다.
 Jetson이 아니라 `ps_classifier_server` 환경에 지정해야 한다.
 
 ```bash
-ADAS_SIGN_SLOW_HEIGHT=0.50 ADAS_SLOW_HEIGHT=0.25 \
+ADAS_SIGN_SLOW_WIDTH=0.20 ADAS_SLOW_HEIGHT=0.25 \
 ADAS_STOP_HEIGHT=0.45 ADAS_ZONE_Y_MIN=0.55 \
 ADAS_ZONE_X_MIN=0.25 ADAS_ZONE_X_MAX=0.75 ADAS_MIN_SCORE=0.25 \
 ADAS_UART_PORT=/dev/ttyPS1 ADAS_UART_BAUD=115200 \

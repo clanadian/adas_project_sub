@@ -46,10 +46,12 @@ Arty PS 분류 서버
 
 위험 대상은 자동차·사람·표지판 3종(경고/규제/지시) 다섯 class다.
 car/person은 박스 화면상 위치와 높이를 거리·진행 경로의 대용값으로 써
-`Slow` 또는 `Stop`을 낸다. 표지판은 진행 경로 안에서 높이가
-`sign_slow_height` 이상일 때만 `Slow`이며 **절대 `Stop`을 만들지 않는다.**
+`Slow` 또는 `Stop`을 낸다. 표지판은 진행 경로 안에서 폭이
+`sign_slow_width` 이상일 때만 `Slow`이며 **절대 `Stop`을 만들지 않는다.**
 현재 분류기가 개별 정지 표지판을 구분하지 못하므로 모든 표지판에 정지를
-거는 오동작을 피하기 위한 정책이다.
+거는 오동작을 피하기 위한 정책이다. (2026-08-21부터 높이 대신 폭을 쓴다 —
+TurtleBot 카메라가 표지판을 올려다보는 각도라 세로 방향이 원근으로
+찌그러져 높이만으로는 실제 거리보다 작게 잡혔다.)
 
 `SafetyJudge`는 "이번 프레임에 뭐가 보이는가"만 순수하게 판단한다.
 반복 트리거 방지와 재출발 시점은 `HazardLatch`가 맡는다. 래치는 `Stop`에만
@@ -132,7 +134,7 @@ ctest --test-dir jetson/build --output-on-failure
 | --- | --- |
 | `JudgeConfig::classes` (`ClassMap`) | 모델의 클래스 순서가 프로젝트마다 다르다. Jetson-Arty 판은 `background`가 앞에 붙어 전체가 한 칸씩 밀린다. 상수를 소스에 박으면 반대쪽에서 **오류 없이 car를 person으로 판단한다** |
 | `HazardLatch::Config::release_ms` | `release_frames`만 쓰면 판단 주기가 바뀔 때 해제 시간이 같이 흔들린다. KR260은 20ms 고정 tick이었지만 현재 PS 판단 갱신 주기는 Jetson의 ROI 개수에 따라 달라진다. 0이면 시간 조건 없음(기존 동작) |
-| `JudgeConfig::sign_slow_height` | 개별 정지표지판을 구분하지 못하므로 표지판은 가까울 때 `Slow`까지만 내고 `Stop`·래치를 만들지 않는다 |
+| `JudgeConfig::sign_slow_width` | 개별 정지표지판을 구분하지 못하므로 표지판은 가까울 때 `Slow`까지만 내고 `Stop`·래치를 만들지 않는다. 높이가 아니라 폭으로 판단한다(위 카메라 각도 사유) |
 
 `common/`을 수정할 때는 다른 변경과 섞지 말고 별도 커밋으로 남긴다
 (`ORIGIN` 규칙). 특히 표지판 정책은 KR260에 그대로 back-port하지 말고 해당

@@ -95,3 +95,15 @@ add_executable(test_dummy_roi_service tests/test_dummy_roi_service.c)
 target_link_libraries(test_dummy_roi_service PRIVATE adas_ps_dummy)
 target_compile_options(test_dummy_roi_service PRIVATE -Wall -Wextra -Wpedantic)
 add_test(NAME test_dummy_roi_service COMMAND test_dummy_roi_service)
+
+# 제어 계층 시험. 판단 로직과 송신 주기·watchdog 은 하드웨어 없이 돈다 -
+# UartPort/SafetyClock 이 그러라고 인터페이스로 분리돼 있다.
+function(add_adas_ps_safety_test target source)
+    add_executable(${target} ${source})
+    target_link_libraries(${target} PRIVATE adas_ps_safety)
+    target_compile_options(${target} PRIVATE -Wall -Wextra -Wpedantic)
+    add_test(NAME ${target} COMMAND ${target})
+endfunction()
+
+add_adas_ps_safety_test(test_safety_judge tests/test_safety_judge.cpp)
+add_adas_ps_safety_test(test_safety_transmitter tests/test_safety_transmitter.cpp)

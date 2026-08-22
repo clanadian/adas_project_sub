@@ -124,7 +124,7 @@ Jetson에는 안전 판단과 UART 송신 코드가 없다. Jetson은 원본 bbo
 Arty에 보내고 분류 결과를 화면에 표시한다. Arty PS가 bbox와 분류 결과를
 결합해 안전 상태를 판단하고 `/dev/ttyPS1`로 TurtleBot에 전송한다.
 
-`ADAS_SIGN_SLOW_HEIGHT`, `ADAS_SLOW_HEIGHT`, `ADAS_STOP_HEIGHT`,
+`ADAS_SIGN_SLOW_WIDTH`, `ADAS_SLOW_HEIGHT`, `ADAS_STOP_HEIGHT`,
 `ADAS_ZONE_*`, `ADAS_MIN_SCORE`, `ADAS_UART_PORT`는 모두
 `ps_classifier_server` 실행 환경에 설정한다.
 

@@ -616,3 +616,110 @@ safety judge: sign_slow_height=... stop_height=... slow_height=...
 
 **`min_class_confidence_ppm` 항목이 없으면** 새 바이너리다. 남아 있으면 옛
 바이너리가 돌고 있는 것이다.
+
+---
+
+## 12. 표지판 게이트를 높이에서 폭으로 변경
+
+변경 2026-08-21 저녁 KST · 변경자 Claude (사용자 제안·확인)
+
+### 12.1 무엇을 바꿨나
+
+`JudgeConfig::sign_slow_height`(bbox 높이 게이트)를 `sign_slow_width`(bbox
+폭 게이트)로 교체했다. §11.6의 기동 로그 예시(`sign_slow_height=...`)는
+이제 `sign_slow_width=...`로 출력된다 — 위 §11.6 원문은 그 시점 기록이라
+그대로 두고 여기 갱신만 남긴다.
+
+### 12.2 왜
+
+사용자가 실제 데모 화면(RPi UI, `sign_mandatory` 99%로 검출된 횡단보도
+표지판)에서 표지판이 충분히 가까워 보이는데도 `Slow`가 안 걸리는 걸
+확인했다. 요청은 "이 정도 크기부터는 `Slow`가 걸렸으면 좋겠다"였다.
+
+**실제로 바뀐 것은 축이 아니라 임계값의 높이다.** 비율은 축마다 따로
+정규화된다(`x`는 640, `y`는 360으로 나눈다 —
+`ps_safety_bridge.cpp:175-178`). 그래서 정사각형에 가까운 표지판 박스는
+height 비율이 width 비율의 `640/360 = 1.78`배로 나온다.
+
+| 게이트 | 픽셀 환산 | 정사각 박스의 height 비율 환산 |
+|---|---:|---:|
+| 기존 `height ≥ 0.50` | 180px | 0.50 |
+| 신규 `width ≥ 0.20` | **128px** | **0.356** |
+
+즉 같은 표지판을 약 1.4배 먼 거리에서 잡게 된 것이고, 그게 동작 변화의
+실체다.
+
+> **[정정]** 이 절은 처음에 "카메라가 표지판을 올려다보는 각도라 세로가
+> 원근으로 찌그러진다"를 원인으로 적었다. **측정으로 뒷받침되지 않는다** —
+> 같은 캡처에서 표지판 bbox는 약 161×168px로 거의 정사각형이었다(`h/w ≈
+> 1.04`). 실제로 올려다보는 각도라면 세로가 눌려 `h/w < 1`이 나와야 한다.
+> 폭이 각도 변화에 더 강한 축인지는 **가설일 뿐 확인된 바 없다.** 추후
+> 재조정 시 이 가설을 전제로 삼지 않는다.
+
+### 12.3 새 임계값과 재조정 시 볼 것
+
+`sign_slow_width` 기본값을 `0.20`으로 잡았다 — 위 데모 스크린샷에서 표지판
+bbox 폭을 프레임 폭 대비 눈대중으로 잰 값(~0.20~0.22)이다. **휴대폰 화면을
+찍은 사진에서 픽셀을 눈대중으로 잰 추정치라 오차가 크다.** 재배포 후
+`server.log`의 실제 bbox 값으로 다시 맞춰야 한다 — §10.4처럼 실보드
+시나리오로 확정하기 전까지는 잠정값이다.
+
+**재조정 전에 `zone_x`부터 배제할 것.** `judgeOne()`은 크기를 보기 **전에**
+중심 x가 `zone_x=[0.25, 0.75]` 안인지로 먼저 거른다(`SafetyJudge.cpp:47`).
+경로 밖 표지판은 아무리 커도 `Clear`다.
+
+위 스크린샷에서 표지판 중심 x를 재보면 **약 0.85로 `zone_x` 밖으로
+추정된다**(같은 눈대중 측정이라 확정은 아니다). 사실이라면 그 프레임이
+`Clear`인 것은 크기 게이트만의 문제가 아니며, **같은 구도로 재현하면 폭을
+바꿔도 여전히 `Clear`가 나온다.** 검증할 때는 표지판을 정면 중앙에 두거나,
+`server.log`의 bbox 중심 x를 먼저 확인한다.
+
+### 12.4 바꾼 파일
+
+| 파일 | 내용 |
+|---|---|
+| `common/include/common/SafetyJudge.hpp` | `JudgeConfig::sign_slow_height` → `sign_slow_width`, 주석 갱신 |
+| `common/src/SafetyJudge.cpp` | `judgeOne()` sign 분기에서 `height` 대신 `width = det.x2 - det.x1` 비교 |
+| `arty/ps_db/src/control/ps_safety_bridge.cpp` | 환경변수 `ADAS_SIGN_SLOW_HEIGHT` → `ADAS_SIGN_SLOW_WIDTH`, 기동 로그 포맷 문자열 |
+| `common/include/common/SafetyHazardLatch.hpp`, `common/README.md`, `arty/ps_db/README.md`, `jetson/README.md`, `docs/contracts/ROI_CLASSIFIER_CONTRACT.md`, `turtlebot/scripts/arty_start.sh` | 이름·기본값(`0.50`→`0.20`) 갱신 |
+
+### 12.5 안전 판단 시험 복구
+
+`ab22bf2`("eb delete")가 젯슨 판단 계층을 지우면서 **그 시험 3개도 같이
+지웠다**: `test_safety_decider.cpp`, `test_safety_transmitter.cpp`,
+`test_detection_adapter.cpp`. 판단 로직은 Arty PS(`ps_safety_bridge` +
+`common/`)로 옮겨졌지만 시험은 따라오지 않았고, 그 결과 §11과 §12의 제어
+로직 변경을 **회귀 그물 없이** 두 번 했다. 저장소 전체에서
+`SafetyJudge`/`HazardLatch`를 참조하는 시험이 0건이었다.
+
+두 개를 Arty PS 쪽으로 복구했다. `common/`은 외부 의존이 없고
+`UartPort`/`SafetyClock`이 인터페이스로 분리돼 있어 **보드 없이 호스트에서
+그대로 돈다.**
+
+| 시험 | 출처 | 내용 |
+|---|---|---|
+| `arty/ps_db/tests/test_safety_judge.cpp` | `test_safety_decider.cpp`를 현재 API(`judge`/`HazardLatch::update`)로 이식 | 거리 임계값, 표지판 폭 게이트, 표지판 Stop 금지, zone_x/zone_y, 래치 hold·해제 |
+| `arty/ps_db/tests/test_safety_transmitter.cpp` | 거의 원문 복구 | 첫 판단 전 Stop, 프레임 바이트·CRC, watchdog, Stop 즉시 송신, 송신 실패 처리, 주기 유지 |
+
+`CMakeLists.txt`에 `add_adas_ps_safety_test()`를 추가해 `adas_ps_safety`에
+링크한다. **`ctest` 11개 전부 통과**하고 `-Wall -Wextra -Wpedantic` 경고가
+없다.
+
+§12의 변경을 고정하는 것은 `testSignUsesWidthNotHeight`다 — 폭은 게이트
+미달인데 높이는 옛 게이트(0.50)를 넘는 박스가 `Clear`여야 한다.
+**게이트를 옛 `height >= 0.50`으로 되돌려 빌드하면 이 시험이 실제로
+실패하는 것까지 확인했다.**
+
+`test_detection_adapter.cpp`에 해당하는 계층(픽셀→정규화 변환, 분류 실패
+→person, background fallback)은 지금 `ps_safety_bridge.cpp` 안에 있고
+`ps_safety_start()`가 실제 UART 포트를 열어야 해서 그대로는 시험할 수
+없다. **§11에서 고친 로직이 바로 이 계층이라 아직 그물이 없다** — 복구하려면
+pty를 쓰거나 매핑 부분을 분리해야 한다. 별도 논의 대상이다.
+
+### 12.6 아직 안 한 것
+
+- **크로스 컴파일·실보드 재배포.** §11.5의 미배포 항목과 합쳐서 한 번에
+  나간다 — 지금 보드 바이너리는 이 변경도, §11의 변경도 반영 전이다.
+- **실측 재조정.** §12.3 참고 — `0.20`은 시작값이고, 재조정 전에 `zone_x`를
+  먼저 배제한다.
+- **`ps_safety_bridge` 매핑 계층 시험.** §12.5 마지막 문단 참고.

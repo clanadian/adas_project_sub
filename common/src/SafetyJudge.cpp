@@ -54,10 +54,12 @@ State judgeOne(const DetectionRecord& det, const JudgeConfig& config) {
         //edge carries no distance information and requiring it to sit low in
         //the frame would miss a sign directly ahead.
         //
-        //Height stands in for distance instead. **Slow is the strongest state
-        //a sign can produce** - the classifier cannot tell a stop sign from
-        //any other sign, so a full halt would be wrong more often than right.
-        if (height >= config.sign_slow_height) {
+        //Width stands in for distance instead (see JudgeConfig::sign_slow_width
+        //for why width and not height). **Slow is the strongest state a sign
+        //can produce** - the classifier cannot tell a stop sign from any other
+        //sign, so a full halt would be wrong more often than right.
+        const float width = det.x2 - det.x1;
+        if (width >= config.sign_slow_width) {
             return State::Slow;
         }
         return State::Clear;

@@ -57,7 +57,7 @@ struct JudgeConfig {
     float stop_height = 0.45f;
     float slow_height = 0.25f;
 
-    //Sign-only distance gate. A sign at or above this box height yields Slow.
+    //Sign-only distance gate. A sign at or above this box width yields Slow.
     //
     //**Signs never produce Stop.** Team decision: the classifier only
     //separates signs into broad categories, not individual signs, so there is
@@ -66,23 +66,30 @@ struct JudgeConfig {
     //that is misjudged now costs a needless slowdown instead of a needless
     //halt, which is the cheaper failure by a wide margin.
     //
-    //Height is used rather than area (w*h). The frame is 16:9, so the vertical
-    //axis saturates first: at 640x360 "50% of area" means a 339px side, which
-    //is 94% of the height and effectively unreachable. A height ratio is not
-    //affected by aspect ratio.
+    //Width, not height. Until 2026-08-21 this gate was sign_slow_height=0.50
+    //and signs that plainly warranted a Slow never reached it.
     //
-    //0.50 = 180px out of 360px, half the frame height. The point of a Slow is
-    //to react while still approaching, and an early Slow costs little, so this
-    //sits deliberately below the car/person Stop gate (stop_height 0.45 is a
-    //different axis - it is gated on the ground plane as well, which signs are
-    //not).
+    //**When re-tuning, note that the two axes are not interchangeable
+    //numbers.** Each ratio is normalised against its own axis of a 640x360
+    //frame, so a square box - which is what these signs produce - has a height
+    //ratio 640/360 = 1.78x its width ratio. The old gate therefore demanded
+    //180px of sign while width >= 0.20 asks for 128px, and that drop is what
+    //actually changed the behaviour. Whether width is *also* the more robust
+    //axis (camera tilt foreshortening the vertical) was suspected but never
+    //measured - do not carry it forward as established.
     //
-    //This number is a property of the camera mount, so the default here is only
-    //a starting point. It is overridden by the **Arty PS** via
-    //ADAS_SIGN_SLOW_HEIGHT (arty/ps_db/src/control/ps_safety_bridge.cpp), which
-    //is where tuning happens - the judgement layer runs on the PS, not on the
-    //Jetson.
-    float sign_slow_height = 0.50f;
+    //**Also rule out zone_x before blaming this gate.** judgeOne() rejects
+    //anything whose centre falls outside [zone_x_min, zone_x_max] before it
+    //ever looks at size, so a sign off to the side stays Clear at any width.
+    //A capture that shows no reaction may be failing the position test rather
+    //than this one.
+    //
+    //0.20 came from measuring a single capture by eye - a starting point, not
+    //a calibrated value. Re-derive it from logged bbox values after redeploy.
+    //It is overridden by the **Arty PS** via ADAS_SIGN_SLOW_WIDTH
+    //(arty/ps_db/src/control/ps_safety_bridge.cpp), which is where tuning
+    //happens - the judgement layer runs on the PS, not on the Jetson.
+    float sign_slow_width = 0.20f;
 
     //이 점수 미만은 무시한다. decode 단계의 threshold와 별개로,
     //안전 판단에서는 더 확실한 것만 보고 싶을 수 있다.
@@ -107,7 +114,7 @@ bool isHazardClass(int32_t class_id);
 //The three sign categories. The model separates signs only by category, not
 //by individual sign, so "stop sign" cannot be told apart from the rest.
 //
-//A sign inside the path (zone_x) whose box height reaches sign_slow_height
+//A sign inside the path (zone_x) whose box width reaches sign_slow_width
 //yields **Slow, never Stop**. Unlike car/person there is no zone_y_min
 //(ground-plane) gate - a sign is mounted on a wall or post rather than
 //resting on the ground, so it has no reason to appear low in the frame, and
