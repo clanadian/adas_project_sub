@@ -98,8 +98,11 @@ RPi가 라우팅하므로 둘 다 RPi를 거쳐 접속한다(`-J`가 경유지�
 | [`docs/ARTY_NETWORK_SETUP.md`](docs/ARTY_NETWORK_SETUP.md) | Arty 네트워크 인터페이스 설정 |
 | [`docs/DB_EB_VERIFICATION_SUMMARY.md`](docs/DB_EB_VERIFICATION_SUMMARY.md) | DB/EB 검증 결과 비교 |
 | [`docs/E2E_MEASUREMENT_REPORT.md`](docs/E2E_MEASUREMENT_REPORT.md) | Jetson→Arty→TurtleBot 지연·처리량 실측 |
+| [`docs/ROI_COUNT_SCALING_REPORT_2026-08-24.md`](docs/ROI_COUNT_SCALING_REPORT_2026-08-24.md) | 실제 ROI 5개 실측과 ROI 10개 처리량 환산 |
+| [`docs/JETSON_YOLO_TEST.md`](docs/JETSON_YOLO_TEST.md) | Jetson MAXN·5W GPU 분류 실험 |
 | [`docs/CONTROL_LOGIC_REVIEW_2026-08-21.md`](docs/CONTROL_LOGIC_REVIEW_2026-08-21.md) | confidence/background 안전 판단 검토와 반영 결과 |
 | [`docs/SHUTDOWN_LOG_2026-08-21_1630.md`](docs/SHUTDOWN_LOG_2026-08-21_1630.md) | 배포 전 종료 로그와 성능 기준선 |
+| [`docs/SHUTDOWN_LOG_2026-08-24.md`](docs/SHUTDOWN_LOG_2026-08-24.md) | ROI 5개 측정 세션과 8월 21일 기준선 비교 |
 | [`docs/contracts/PL_HANDOFF_CHECKLIST.md`](docs/contracts/PL_HANDOFF_CHECKLIST.md) | PL 인계 산출물 인수 기준 |
 
 ## Current measurement

@@ -29,10 +29,8 @@ V4L2 YUYV
 `실보드 연동`은 Arty DB 보드에 실제 카메라 프레임을 계속 전송해 확인한
 것이다. 자세한 수치는
 [`../docs/DB_ARTY_BRINGUP_REPORT.md`](../docs/DB_ARTY_BRINGUP_REPORT.md) §5를
-본다. `MjpegStreamServer`를 분류 루프에 안전하게 붙이는 방법(별도 스레드,
-넌블로킹 소켓 쓰기)은
-[`../docs/JETSON_MJPEG_STREAM_NOTES.md`](../docs/JETSON_MJPEG_STREAM_NOTES.md)에
-있다.
+본다. `MjpegStreamServer`는 분류 루프와 분리된 서버 스레드에서 동작하며,
+느린 브라우저 연결이 추론을 막지 않도록 최신 JPEG 프레임만 게시한다.
 
 ## Proposal model
 

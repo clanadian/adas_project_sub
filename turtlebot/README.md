@@ -265,36 +265,13 @@ RPi 를 새로 깔았다면 이것들도 다시 해야 한다. **하나라도 �
 | RPi `~/uart_receiver.py` (74줄) | 위와 같음. 정식본은 `rpi_adas_demo/uart_safety_receiver.py` |
 | RPi `~/monitor.py` | 초기 디버그용 |
 | RPi `~/robot_nolidar.launch.py` | `turtlebot3_bringup` 설치본과 바이트 동일 |
-| RPi `~/mediamtx` (38 MB) | 업스트림 배포 바이너리 |
 | RPi `~/xone/`, `~/xpadneo/` | 별개 git 저장소 |
-
-### 크기 주의
-
-`ros2_ws/src/rpi_adas_demo/models/` 의 ONNX 두 개가 **42 MB** 다
-(fp32 34 MB + int8 8.4 MB). 백업이 목적이라 포함했다.
-
-이 모델은 **RPi 자체 YOLO 경로(`yolo_safety_node`)용**이고 현재 아키텍처에서는
-쓰지 않는다. 저장소를 가볍게 하려면 이 둘만 빼거나 Git LFS 로 옮기면 된다.
 
 ---
 
 ## 6. ⚠️ 함정 — 이것만 알면 대부분 막힌다
 
-### 6.1 패키지 README 는 낡았다
-
-`ros2_ws/src/rpi_adas_demo/README.md` 는 **옛 아키텍처**(RPi 자체 YOLO +
-WebRTC + `LB` 데드맨)를 설명한다. 그 파일 맨 위에 경고를 붙여 두었다.
-
-**거기 적힌 이 명령을 그대로 쓰면 안 된다:**
-
-```bash
-ros2 launch rpi_adas_demo demo.launch.py     # 쓰지 말 것
-```
-
-`yolo_safety_node` 가 `/adas/safety_state` 에 **두 번째 발행자**로 붙어 Arty 가
-보낸 판단과 충돌한다. 지금은 `~/start_robot.sh` 를 쓴다.
-
-### 6.2 모터 토크는 매번 꺼진 채로 올라온다
+### 6.1 모터 토크는 매번 꺼진 채로 올라온다
 
 ```bash
 ros2 topic echo /sensor_state --once | grep torque
@@ -302,12 +279,12 @@ ros2 topic echo /sensor_state --once | grep torque
 
 `false` 면 `/cmd_vel` 에 값이 실려도 바퀴가 안 돈다.
 
-### 6.3 `pkill -f` 가 자기 SSH 를 죽인다
+### 6.2 `pkill -f` 가 자기 SSH 를 죽인다
 
 패턴이 호출한 셸의 명령줄에도 들어가기 때문이다. `[j]etson_roi_client` 처럼
 대괄호를 넣거나 스크립트 파일로 만들어 실행한다.
 
-### 6.4 Arty 는 busybox 다
+### 6.3 Arty 는 busybox 다
 
 `ps -o pid,args`, `head -c`, `timeout`, `base64` 가 **없다.** `ps -o` 를 쓰면
 아무것도 안 나와서 "서버가 없다"고 오판하고, 다시 띄우면
@@ -318,11 +295,11 @@ ps | grep -a ps_classifier_server | grep -av grep
 grep -a ':1388' /proc/net/tcp
 ```
 
-### 6.5 `sudo ... &` 로 백그라운드 기동 금지
+### 6.4 `sudo ... &` 로 백그라운드 기동 금지
 
 `Stopped (SIGTTIN)` 으로 그 자리에서 멈춘다. 스크립트 파일로 실행한다.
 
-### 6.6 계속 STOP 만 나온다면
+### 6.5 계속 STOP 만 나온다면
 
 ① 젯슨이 안 떠 있다 ② Arty 에 `ADAS_UART_PORT` 를 안 줬다 ③ 둘 다.
 

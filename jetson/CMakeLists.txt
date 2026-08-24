@@ -60,6 +60,21 @@ if(TENSORRT_INCLUDE_DIR AND TENSORRT_LIBRARY AND CUDART_LIBRARY)
     add_executable(camera_roi_check tools/camera_roi_check.cpp)
     target_link_libraries(camera_roi_check PRIVATE adas_jetson_pipeline)
     target_compile_options(camera_roi_check PRIVATE -Wall -Wextra -Wpedantic)
+
+    # A/B/C accelerator experiment: classifier alone and YOLO->classifier
+    # GPU compute timing. It deliberately does not link safety/UART code.
+    add_executable(classifier_gpu_benchmark tools/classifier_gpu_benchmark.cpp)
+    target_include_directories(classifier_gpu_benchmark PRIVATE
+        ${TENSORRT_INCLUDE_DIR}
+        /usr/local/cuda/include
+    )
+    target_link_libraries(classifier_gpu_benchmark PRIVATE
+        ${TENSORRT_LIBRARY}
+        ${CUDART_LIBRARY}
+    )
+    target_compile_options(classifier_gpu_benchmark PRIVATE
+        -Wall -Wextra -Wpedantic
+    )
 endif()
 
 add_executable(jetson_roi_client tools/jetson_roi_client.cpp)

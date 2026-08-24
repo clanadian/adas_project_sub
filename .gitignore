@@ -3,8 +3,6 @@
 *.jou
 *.log
 *.log.old
-# EB 핸드오프의 cosim/csynth 로그는 성능 수치의 근거라 남긴다
-!arty/pl_eb/logs/*.log
 .Xil/
 
 # 팀 전달용 원본 압축 파일. 필요한 소스는 저장소에 별도로 반영한다.
@@ -26,7 +24,6 @@ CMakeFiles/
 cmake_install.cmake
 Makefile
 !arty/ps_db/kernel/Makefile
-!arty/ps_eb/kernel/Makefile
 !arty/classifier_linux_db/project-spec/meta-user/recipes-modules/adas-classifier/files/Makefile
 *.o
 *.obj
@@ -34,3 +31,8 @@ Makefile
 # Python
 __pycache__/
 *.py[cod]
+
+# Jetson에서 재생성하는 TensorRT 및 A/B/C 실험 산출물.
+*.engine
+*.plan
+jetson/models/classifier_benchmark/

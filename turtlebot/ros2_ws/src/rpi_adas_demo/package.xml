@@ -4,20 +4,17 @@
   <name>rpi_adas_demo</name>
   <version>0.1.0</version>
   <description>
-    RPi-local ADAS safety demo: runs ONNX YOLOv3-tiny inference on a USB camera
-    and outputs safety-gated cmd_vel for TurtleBot3.
-    Replaces the KR260 FPGA accelerator + RPU UART path during development.
+    Receives CRC-protected safety states from Arty over UART and applies them
+    to TurtleBot3 velocity commands.
   </description>
   <maintainer email="todo@example.com">todo</maintainer>
   <license>Apache-2.0</license>
 
   <exec_depend>rclpy</exec_depend>
-  <exec_depend>ament_index_python</exec_depend>
   <exec_depend>std_msgs</exec_depend>
   <exec_depend>sensor_msgs</exec_depend>
   <exec_depend>geometry_msgs</exec_depend>
   <exec_depend>joy</exec_depend>
-  <exec_depend>python3-opencv</exec_depend>
 
   <test_depend>ament_copyright</test_depend>
   <test_depend>ament_flake8</test_depend>

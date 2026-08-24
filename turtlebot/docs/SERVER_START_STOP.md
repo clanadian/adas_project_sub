@@ -68,8 +68,7 @@ grep -a ':1388' /proc/net/tcp && echo LISTEN
 ssh -J ubuntu@10.10.16.200 jetson@192.168.100.2
 ```
 
-> 계정은 `nvidia` 가 아니라 **`jetson`** 이다. 10.10.16.160 은 죽었고 RPi 를
-> 경유해야 붙는다.
+> 계정은 `nvidia`가 아니라 **`jetson`**이며 RPi를 경유해야 한다.
 
 ```bash
 setsid nohup ~/start_adas.sh > /tmp/jetson.log 2>&1 < /dev/null &
