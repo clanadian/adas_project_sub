@@ -11,8 +11,8 @@ DB 클럭·DDR 진단 과정은 [`DB_ARTY_BRINGUP_REPORT.md`](DB_ARTY_BRINGUP_RE
 > 아래 표의 `수신 간격 포함 처리량 14.83 ROI/s` 는 **TCP 응답 40 ms 지연이
 > 있던 시점**의 측정이다. 그 지연을 제거한 뒤 같은 DB 보드에서 **38.57 ROI/s**
 > 가 나왔다(표본 87,918 ROI). 원인·수정은
-> [`PS_TCP_RESPONSE_FIX.md`](PS_TCP_RESPONSE_FIX.md), 새 수치는
-> [`E2E_MEASUREMENT_REPORT.md`](E2E_MEASUREMENT_REPORT.md).
+> [`PS_TCP_RESPONSE_FIX.md`](../PS_TCP_RESPONSE_FIX.md), 새 수치는
+> [`E2E_MEASUREMENT_REPORT.md`](../reports/E2E_MEASUREMENT_REPORT.md).
 >
 > **PL 실행 시간(6.604 ms)과 결론("Jetson 이 병목이라 DB/EB 차이가 체감
 > FPS 로 안 드러난다")은 지금도 유효하다.** 재측정에서 DB 는 6.611 ms 로

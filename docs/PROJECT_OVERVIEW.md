@@ -348,7 +348,7 @@ shared/include/         Jetson–PS 공통 TCP 프로토콜 (정본)
 common/                 KR260에서 승계한 안전 판단 계층 (판단·래치·UART frame)
 docs/
   contracts/            데이터·하드웨어 계약 (정본)
-  DB_ARTY_BRINGUP_REPORT.md   브링업 진단·검증 보고서
+  bringup/                    SD 부팅·네트워크·보드 브링업 기록
   FPS_MEASUREMENT_GUIDE.md    FPS·지연 측정 계측과 절차
   PS_PIPELINE_STUDY.md        개념 ↔ 코드 대응 설명
   contracts/ROI_CLASSIFIER_CONTRACT.md   PL↔PS 연동 계약 (db/eb 공통 + 변종별 정본)
@@ -367,7 +367,7 @@ docs/
 - ~~**엔드투엔드 FPS 측정**~~ — 2026-08-21 완료. 21.6~25.7 FPS,
   27~39 ROI/s, 총 197,639 요청 오류 0. 병목은 가속기가 아니라 Jetson
   proposal 28.2 ms 다. 수치·재현 절차는
-  [`E2E_MEASUREMENT_REPORT.md`](E2E_MEASUREMENT_REPORT.md), 계측 정의는
+  [`E2E_MEASUREMENT_REPORT.md`](reports/E2E_MEASUREMENT_REPORT.md), 계측 정의는
   [`FPS_MEASUREMENT_GUIDE.md`](FPS_MEASUREMENT_GUIDE.md).
 - ~~**rootfs 정식화**~~ — 2026-08-20 완료. DB는 서버 바이너리(`ps-classifier-server`
   레시피)가 rootfs에 편입됐고, initramfs에서 영속 ext4(`root=/dev/mmcblk0p2`)로

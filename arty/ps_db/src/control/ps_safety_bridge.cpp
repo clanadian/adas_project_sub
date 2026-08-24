@@ -36,6 +36,25 @@ float ratioFromEnvironment(const char* name, float fallback) {
     return value;
 }
 
+std::uint64_t millisecondsFromEnvironment(const char* name, std::uint64_t fallback) {
+    const char* const text = std::getenv(name);
+    if (text == nullptr || *text == '\0') {
+        return fallback;
+    }
+
+    errno = 0;
+    char* end = nullptr;
+    const unsigned long long value = std::strtoull(text, &end, 10);
+    /* 상한 10분. 오타로 몇 시간짜리 SLOW 가 걸리는 쪽이 0 보다 위험하다. */
+    if (errno != 0 || end == text || *end != '\0' || value > 600000ULL) {
+        std::fprintf(stderr,
+            "warning: %s must be milliseconds in [0,600000]; using %llu\n",
+            name, static_cast<unsigned long long>(fallback));
+        return fallback;
+    }
+    return static_cast<std::uint64_t>(value);
+}
+
 /*
  * 모델의 background=0 때문에 KR260 기본값(car=0)에서 전부 한 칸 밀린다.
  */
@@ -75,6 +94,19 @@ struct ps_safety_handle {
      * Stop 을 만들거나 HazardLatch 를 열지 않는다. */
     bool pending_background_slow{false};
 
+    /*
+     * 표지판 SLOW 유지. 표지판이 판단 게이트를 통과한 프레임마다
+     * now + sign_hold_ms 로 **갱신**되므로, 보이는 동안 계속 유지되고
+     * 사라진 뒤 sign_hold_ms 만큼 더 간다.
+     *
+     * HazardLatch 를 쓰지 않는 이유: 래치는 Stop 이벤트 전용이고
+     * (표지판은 Stop 을 못 만든다), Holding 처럼 detection 을 무시하는
+     * 구간을 표지판에 주면 그 사이 나타난 사람에게 반응하지 못한다.
+     * 여기서는 판단 결과와 **max(더 위험한 쪽)** 로 합치기만 한다.
+     */
+    std::uint64_t sign_hold_ms{5000u};
+    std::uint64_t sign_slow_until_ms{0u};
+
     safety::State state{safety::State::Stop};
     std::unique_ptr<adas::control::SafetyTransmitter> transmitter;
     std::atomic_bool transmitter_stop{false};
@@ -109,6 +141,9 @@ ps_safety_handle_t* ps_safety_start(const char* uart_port, unsigned baud) {
     handle->judge_config.min_score = ratioFromEnvironment(
         "ADAS_MIN_SCORE", handle->judge_config.min_score);
 
+    handle->sign_hold_ms = millisecondsFromEnvironment(
+        "ADAS_SIGN_HOLD_MS", handle->sign_hold_ms);
+
     if (handle->judge_config.zone_x_min > handle->judge_config.zone_x_max) {
         std::fprintf(stderr,
             "ADAS_ZONE_X_MIN must not exceed ADAS_ZONE_X_MAX\n");
@@ -123,14 +158,15 @@ ps_safety_handle_t* ps_safety_start(const char* uart_port, unsigned baud) {
     std::fprintf(stderr,
         "safety judge: sign_slow_width=%.3f stop_height=%.3f "
         "slow_height=%.3f zone_x=[%.3f,%.3f] zone_y_min=%.3f "
-        "min_score=%.3f\n",
+        "min_score=%.3f sign_hold_ms=%llu\n",
         static_cast<double>(handle->judge_config.sign_slow_width),
         static_cast<double>(handle->judge_config.stop_height),
         static_cast<double>(handle->judge_config.slow_height),
         static_cast<double>(handle->judge_config.zone_x_min),
         static_cast<double>(handle->judge_config.zone_x_max),
         static_cast<double>(handle->judge_config.zone_y_min),
-        static_cast<double>(handle->judge_config.min_score));
+        static_cast<double>(handle->judge_config.min_score),
+        static_cast<unsigned long long>(handle->sign_hold_ms));
 
     safety::HazardLatch::Config latch_config;
     latch_config.release_ms = 200u;
@@ -243,6 +279,21 @@ void ps_safety_flush_frame(ps_safety_handle_t* handle) {
     const std::uint64_t now_ms = handle->clock.nowMs();
 
     /*
+     * 표지판이 이번 프레임에 판단 게이트를 통과했으면 유지 시각을 갱신한다.
+     * judgeOne() 을 그대로 불러 판단 기준이 두 갈래로 갈라지지 않게 한다
+     * - 표지판의 Slow 조건은 여기서 다시 쓰지 않는다.
+     */
+    for (std::size_t i = 0; i < handle->pending_count; ++i) {
+        if (safety::isSignClass(handle->pending[i].class_id,
+                                handle->judge_config.classes)
+            && safety::judgeOne(handle->pending[i], handle->judge_config)
+                   == safety::State::Slow) {
+            handle->sign_slow_until_ms = now_ms + handle->sign_hold_ms;
+            break;
+        }
+    }
+
+    /*
      * 후보가 하나도 없어도 update를 부른다. 래치가 Holding 중이면
      * 시간을 흘려보내야 하고,
      * Released 중이면 absent 카운트를 올려야 한다. 여기서 건너뛰면
@@ -260,6 +311,20 @@ void ps_safety_flush_frame(ps_safety_handle_t* handle) {
         && handle->state == safety::State::Clear) {
         handle->state = safety::State::Slow;
     }
+    /*
+     * 표지판 유지 구간이면 Slow 로 끌어올린다. **더 위험한 쪽을 남기므로**
+     * Stop 은 절대 덮어쓰지 않는다 - 표지판 유지 중에 사람이 들어와도
+     * 그대로 Stop 이 나간다.
+     *
+     * sign_hold_ms 가 0 이면 sign_slow_until_ms == now_ms 라 이 조건이
+     * 성립하지 않는다 - 유지 없이 "보이는 동안만 Slow" 인 기존 동작이 된다.
+     */
+    if (now_ms < handle->sign_slow_until_ms
+        && static_cast<std::uint8_t>(handle->state)
+               < static_cast<std::uint8_t>(safety::State::Slow)) {
+        handle->state = safety::State::Slow;
+    }
+
     handle->pending_count = 0u;
     handle->pending_background_slow = false;
 
@@ -274,6 +339,8 @@ void ps_safety_force_stop(ps_safety_handle_t* handle) {
     }
     handle->pending_count = 0u;
     handle->pending_background_slow = false;
+    /* 관측 이력을 못 믿는 상황이다. 표지판 유지도 같이 버린다. */
+    handle->sign_slow_until_ms = 0u;
     handle->state = safety::State::Stop;
     if (handle->transmitter) {
         handle->transmitter->publish(handle->state, handle->clock.nowMs());

@@ -1,5 +1,9 @@
 # 서버 기동 · 종료 절차
 
+> 명령만 빠르게 확인하려면
+> [`../../docs/THREE_BOARD_QUICK_START.md`](../../docs/THREE_BOARD_QUICK_START.md)를
+> 먼저 본다.
+
 작성 2026-08-21 · 대상 Arty Z7-20 + Jetson Nano + TurtleBot(RPi)
 · 실제로 이 순서대로 올리고 내려서 검증함
 

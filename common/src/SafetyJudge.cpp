@@ -41,27 +41,33 @@ State judgeOne(const DetectionRecord& det, const JudgeConfig& config) {
         return State::Clear;
     }
 
-    //가로는 중심으로 본다. 화면 가장자리에 걸친 박스는 좌표가 0~1을
-    //벗어날 수 있는데, 중심을 쓰면 그 영향이 절반으로 준다.
-    const float center_x = (det.x1 + det.x2) * 0.5f;
-    if (center_x < config.zone_x_min || center_x > config.zone_x_max) {
-        return State::Clear;
-    }
-
     if (is_sign) {
-        //No zone_y_min (ground-plane) gate for signs: they are mounted on
-        //walls and posts rather than resting on the ground, so their bottom
-        //edge carries no distance information and requiring it to sit low in
-        //the frame would miss a sign directly ahead.
+        //표지판에는 **위치 조건을 걸지 않는다** - zone_y_min(지면)도,
+        //zone_x(경로 좌우)도 보지 않는다.
         //
-        //Width stands in for distance instead (see JudgeConfig::sign_slow_width
-        //for why width and not height). **Slow is the strongest state a sign
-        //can produce** - the classifier cannot tell a stop sign from any other
-        //sign, so a full halt would be wrong more often than right.
+        //zone_y 를 빼는 이유는 벽·기둥에 달려 있어 아랫변에 거리 정보가
+        //없기 때문이고, zone_x 를 빼는 이유는 표지판이 길가에 서 있는 것이
+        //정상이라 **화면상 좌우 위치가 "나에게 적용되는가"를 뜻하지 않기**
+        //때문이다. 경로 영역은 "내 진행선 위의 장애물"을 가리기 위한 것이라
+        //car/person 에만 의미가 있다.
+        //
+        //2026-08-24 변경. 그 전까지는 표지판도 zone_x 를 지켰고, 데모 캡처의
+        //표지판이 중심 x ~0.90 이라 폭 게이트를 아무리 낮춰도 Clear 였다.
+        //
+        //남는 게이트는 폭 하나뿐이다 - 거리 대용이다(왜 높이가 아니라 폭인지는
+        //JudgeConfig::sign_slow_width 참고). **표지판이 낼 수 있는 최대는
+        //Slow 다** - 분류기가 정지표지판을 다른 표지판과 구분하지 못한다.
         const float width = det.x2 - det.x1;
         if (width >= config.sign_slow_width) {
             return State::Slow;
         }
+        return State::Clear;
+    }
+
+    //가로는 중심으로 본다. 화면 가장자리에 걸친 박스는 좌표가 0~1을
+    //벗어날 수 있는데, 중심을 쓰면 그 영향이 절반으로 준다.
+    const float center_x = (det.x1 + det.x2) * 0.5f;
+    if (center_x < config.zone_x_min || center_x > config.zone_x_max) {
         return State::Clear;
     }
 

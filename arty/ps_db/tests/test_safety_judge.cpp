@@ -130,17 +130,26 @@ void testSignIgnoresGroundPlane() {
 }
 
 /*
- * 표지판도 zone_x 는 지킨다. 크기 검사보다 **먼저** 걸러진다.
+ * 표지판은 zone_x 를 보지 않는다. 폭만 넘으면 화면 어디에 있든 Slow 다.
  *
- * 2026-08-21 데모 캡처의 표지판이 중심 x ~0.85 로 추정됐다 - 경로 밖이라
- * 폭 게이트를 낮춰도 그 구도에서는 Clear 다. 크기 게이트를 재조정할 때
- * 이걸 원인으로 오해하기 쉬워 시험으로 고정해 둔다.
+ * 2026-08-24 정책 변경. 그 전까지는 표지판도 zone_x 를 지켰고, 데모 캡처의
+ * 표지판이 중심 x ~0.90 이라 폭 게이트를 아무리 낮춰도 Clear 였다. 표지판은
+ * 길가에 서 있는 것이 정상이라 좌우 위치가 적용 여부를 뜻하지 않는다.
+ *
+ * car/person 은 그대로 zone_x 를 지킨다 - 아래에서 같이 고정한다.
  */
-void testSignRespectsZoneX() {
+void testSignIgnoresZoneX() {
     const auto config = makeConfig();
+    const float far_right = 0.90F;
 
-    assert(judgeOf(recordAt(0.85F, 0.5F, config.sign_slow_width + 0.3F, 0.4F,
-                            config.classes.sign_mandatory), config)
+    /* 경로 밖 오른쪽 끝의 표지판도 폭만 넘으면 Slow. */
+    assert(judgeOf(recordAt(far_right, 0.5F, config.sign_slow_width + 0.02F,
+                            0.4F, config.classes.sign_mandatory), config)
+           == State::Slow);
+
+    /* 같은 자리의 person 은 여전히 Clear - zone_x 완화는 표지판 한정이다. */
+    assert(judgeOf(recordAt(far_right, 0.95F, 0.3F, config.stop_height + 0.1F,
+                            config.classes.person), config)
            == State::Clear);
 }
 
@@ -284,7 +293,7 @@ int main() {
     testCarPersonDistanceThresholds();
     testSignUsesWidthNotHeight();
     testSignIgnoresGroundPlane();
-    testSignRespectsZoneX();
+    testSignIgnoresZoneX();
     testSignNeverStops();
     testBackgroundAndUnknownAreClear();
     testLowScoreIsIgnored();

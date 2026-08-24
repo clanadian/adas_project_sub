@@ -272,7 +272,7 @@ RPi 가 젯슨↔아티 사이를 라우팅하므로 **그 둘 사이 트래픽�
 
 ## 9. 문서 정정 — Arty 는 initramfs 가 아니다
 
-`docs/ARTY_NETWORK_SETUP.md` 와 `ARTY_SD_BOOT_USAGE.md` 는 `root=/dev/ram0`
+`docs/bringup/ARTY_NETWORK_SETUP.md` 와 `ARTY_SD_BOOT_USAGE.md` 는 `root=/dev/ram0`
 (RAM 기반 rootfs)라 **재부팅하면 IP·파일이 전부 사라진다**고 적고 있다.
 지금 보드는 그렇지 않다.
 

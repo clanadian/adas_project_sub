@@ -36,7 +36,7 @@ TCP server
 
 `실보드 검증`은 `ps_db_golden_test`(PL 출력 bit-exact 대조)와 실제 Jetson 카메라
 연동 테스트로 확인한 것이다. 자세한 내용과 수치는
-[`../../docs/DB_ARTY_BRINGUP_REPORT.md`](../../docs/DB_ARTY_BRINGUP_REPORT.md)에
+[`../../docs/bringup/DB_ARTY_BRINGUP_REPORT.md`](../../docs/bringup/DB_ARTY_BRINGUP_REPORT.md)에
 있다.
 
 ## AXI-Lite map

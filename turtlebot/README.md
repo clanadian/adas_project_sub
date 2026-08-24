@@ -312,7 +312,7 @@ grep -a ':1388' /proc/net/tcp
 | [`docs/SERVER_START_STOP.md`](docs/SERVER_START_STOP.md) | 기동·종료 상세, 함정 10가지 표 |
 | [`docs/UART_STATUS_REPORT.md`](docs/UART_STATUS_REPORT.md) | UART 점검 근거. "설정이 덜 됐다"는 오진의 실제 원인 |
 | [`../docs/PS_TCP_RESPONSE_FIX.md`](../docs/PS_TCP_RESPONSE_FIX.md) | Arty 응답 40 ms 지연 원인·수정안. **저장소 `docs/` 가 정본** — 여기에 사본을 두지 않는다(2026-08-21 에 두 벌이 갈라진 적 있다) |
-| [`../docs/E2E_MEASUREMENT_REPORT.md`](../docs/E2E_MEASUREMENT_REPORT.md) | Jetson→Arty→RPi 엔드투엔드 실측 (FPS·지연·UART·재현 절차) |
+| [`../docs/reports/E2E_MEASUREMENT_REPORT.md`](../docs/reports/E2E_MEASUREMENT_REPORT.md) | Jetson→Arty→RPi 엔드투엔드 실측 (FPS·지연·UART·재현 절차) |
 
 ---
 

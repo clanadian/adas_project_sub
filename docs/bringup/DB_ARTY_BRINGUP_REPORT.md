@@ -51,10 +51,10 @@ ROW_ADDR      14                    15
 
 ## 3. 재발 방지 조치
 
-- [`arty/tools/check_xsa.sh`](../arty/tools/check_xsa.sh) — XSA를 열어 보드 필수
+- [`arty/tools/check_xsa.sh`](../../arty/tools/check_xsa.sh) — XSA를 열어 보드 필수
   파라미터 10개(크리스털·DDR 5종·UART·SD MIO)를 자동 대조한다. 하나라도 어긋나면
   실패로 종료한다.
-- [`docs/contracts/PL_HANDOFF_CHECKLIST.md`](contracts/PL_HANDOFF_CHECKLIST.md) —
+- [`docs/contracts/PL_HANDOFF_CHECKLIST.md`](../contracts/PL_HANDOFF_CHECKLIST.md) —
   PL 인계본이 만족해야 할 기준. §1 보드 설정, §3 실가중치 검증 결과 포함 여부를
   명시하고, 각 항목에 오늘 발생한 사고를 근거로 남겼다.
 - `arty/classifier_linux_db/project-spec/hw-description/`에 XSA를 먼저 채우고
@@ -124,8 +124,8 @@ class_id는 1(car)·2(person)이 주로 나왔고 4(sign_prohibition)도 간헐�
 
 ## 7. 참고 — 오늘 만든 도구
 
-- [`arty/deploy/burn_sd.sh`](../arty/deploy/burn_sd.sh) — 변종(db/eb) FAT UUID로
+- [`arty/deploy/burn_sd.sh`](../../arty/deploy/burn_sd.sh) — 변종(db/eb) FAT UUID로
   카드를 찾아가 반대쪽 카드에 덮어쓰는 사고를 방지. 포맷은 하지 않고 파일만 갱신한다.
-- [`arty/deploy/inspect_sd.sh`](../arty/deploy/inspect_sd.sh) — SD 카드 파티션·FAT
+- [`arty/deploy/inspect_sd.sh`](../../arty/deploy/inspect_sd.sh) — SD 카드 파티션·FAT
   구조를 덤프해 두 카드를 대조.
-- [`arty/tools/check_xsa.sh`](../arty/tools/check_xsa.sh) — §3 참조.
+- [`arty/tools/check_xsa.sh`](../../arty/tools/check_xsa.sh) — §3 참조.

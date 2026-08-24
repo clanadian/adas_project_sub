@@ -28,7 +28,7 @@ V4L2 YUYV
 
 `실보드 연동`은 Arty DB 보드에 실제 카메라 프레임을 계속 전송해 확인한
 것이다. 자세한 수치는
-[`../docs/DB_ARTY_BRINGUP_REPORT.md`](../docs/DB_ARTY_BRINGUP_REPORT.md) §5를
+[`../docs/bringup/DB_ARTY_BRINGUP_REPORT.md`](../docs/bringup/DB_ARTY_BRINGUP_REPORT.md) §5를
 본다. `MjpegStreamServer`는 분류 루프와 분리된 서버 스레드에서 동작하며,
 느린 브라우저 연결이 추론을 막지 않도록 최신 JPEG 프레임만 게시한다.
 

@@ -150,7 +150,7 @@ ROI 개수별 프레임 시간(중앙값). 같은 보드·같은 비트스트림
 > 반영돼 있으나, 보드 바이너리는 재빌드되지 않았다. tcpdump 로 확인하면
 > 응답이 여전히 `length 20` + `length 12` 두 패킷이다(간격은 0). 환경변수를
 > 빼고 띄우면 40 ms 가 그대로 돌아온다. 재배포 후 `length 32` 한 패킷을
-> 확인해야 완료다. → [`PS_TCP_RESPONSE_FIX.md`](PS_TCP_RESPONSE_FIX.md)
+> 확인해야 완료다. → [`PS_TCP_RESPONSE_FIX.md`](../PS_TCP_RESPONSE_FIX.md)
 
 ---
 

@@ -20,7 +20,7 @@ C: Jetson 한 GPU에서 YOLO -> 분류기 순차 실행
 | GAP+FC까지 포함한 분류 | PS+PL `6.88 ms` | `classifier_full.engine` |
 | 네트워크 포함 Jetson 체감 | RTT `8.24 ms` | 로컬 호출이므로 직접 대응 없음 |
 
-Arty 값의 출처는 `docs/SHUTDOWN_LOG_2026-08-21_1630.md`다.
+Arty 값의 출처는 `docs/reports/SHUTDOWN_LOG_2026-08-21_1630.md`다.
 
 ## 2. 모델 재현 원칙
 

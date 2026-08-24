@@ -78,18 +78,20 @@ struct JudgeConfig {
     //axis (camera tilt foreshortening the vertical) was suspected but never
     //measured - do not carry it forward as established.
     //
-    //**Also rule out zone_x before blaming this gate.** judgeOne() rejects
-    //anything whose centre falls outside [zone_x_min, zone_x_max] before it
-    //ever looks at size, so a sign off to the side stays Clear at any width.
-    //A capture that shows no reaction may be failing the position test rather
-    //than this one.
+    //**This is now the only gate a sign has to pass.** As of 2026-08-24
+    //judgeOne() applies neither zone_y nor zone_x to signs, so position in
+    //frame no longer matters - a sign at the very edge is judged the same as
+    //one dead ahead. Before that change the demo capture's sign sat at centre
+    //x ~0.90 and stayed Clear no matter how far this gate was lowered.
     //
-    //0.20 came from measuring a single capture by eye - a starting point, not
-    //a calibrated value. Re-derive it from logged bbox values after redeploy.
+    //0.12 was chosen for the demo: signs should react early and visibly, and
+    //a sign can only ever cost a needless Slow. Neither 0.12 nor the 0.20 it
+    //replaced is calibrated - both came from eyeballing a capture. Re-derive
+    //from logged bbox values when that data exists.
     //It is overridden by the **Arty PS** via ADAS_SIGN_SLOW_WIDTH
     //(arty/ps_db/src/control/ps_safety_bridge.cpp), which is where tuning
     //happens - the judgement layer runs on the PS, not on the Jetson.
-    float sign_slow_width = 0.20f;
+    float sign_slow_width = 0.12f;
 
     //이 점수 미만은 무시한다. decode 단계의 threshold와 별개로,
     //안전 판단에서는 더 확실한 것만 보고 싶을 수 있다.
@@ -114,11 +116,12 @@ bool isHazardClass(int32_t class_id);
 //The three sign categories. The model separates signs only by category, not
 //by individual sign, so "stop sign" cannot be told apart from the rest.
 //
-//A sign inside the path (zone_x) whose box width reaches sign_slow_width
-//yields **Slow, never Stop**. Unlike car/person there is no zone_y_min
-//(ground-plane) gate - a sign is mounted on a wall or post rather than
-//resting on the ground, so it has no reason to appear low in the frame, and
-//requiring that would miss a sign directly ahead.
+//A sign whose box width reaches sign_slow_width yields **Slow, never Stop**.
+//Unlike car/person it passes **no position gate at all** - neither zone_y_min
+//(ground-plane) nor zone_x (path corridor). A sign is mounted on a wall or
+//post rather than resting on the ground, and it stands at the roadside by
+//design, so neither its height in frame nor its left-right position says
+//anything about whether it applies. Width alone stands in for distance.
 //
 //Because signs never reach Stop, they never open a HazardLatch event either:
 //the latch triggers on Stop only. A sign therefore holds Slow for as long as
