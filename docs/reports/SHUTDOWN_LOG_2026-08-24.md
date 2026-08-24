@@ -115,6 +115,26 @@ server total   n=24340   mean   6.875 ms  min   6.785 ms  max   6.985 ms
 처리량이다. `145.45 ROI/s`는 서버가 요청을 연속으로 공급받는다고 가정한 Arty
 PS·PL 처리시간 기준 상한이므로 두 수치를 같은 의미로 비교하지 않는다.
 
+### 3.2 추가 통합 실행 Arty 로그
+
+같은 날 추가 실행에서 아래 로그를 확보했다.
+
+```text
+=== session summary ===
+requests       22264 (ok 22264, error 0)
+wall clock     813.81 s  ->  27.36 ROI/s (수신 간격 포함)
+보드가 쓴 시간이 곧 처리량 상한이다: 145.39 ROI/s (server_us 평균 기준)
+preprocess     n=22264   mean   0.133 ms  min   0.126 ms  max   0.203 ms
+pl_run         n=22264   mean   6.614 ms  min   6.526 ms  max   6.667 ms
+postprocess    n=22264   mean   0.127 ms  min   0.124 ms  max   0.198 ms
+server total   n=22264   mean   6.878 ms  min   6.787 ms  max   6.993 ms
+```
+
+22,264건이 모두 정상 처리됐으며 오류는 0건이다. PL 평균 6.614 ms/ROI와 서버
+전체 평균 6.878 ms/ROI는 앞선 두 세션과 같다. 수신 간격 포함 처리량은 27.36
+ROI/s로 달라졌지만, Arty 내부 처리시간 기준 상한은 145.39 ROI/s로 유지됐다.
+따라서 세션별 실제 요청 빈도는 달라도 PS·PL 처리 성능은 재현됐다고 판단한다.
+
 ## 4. ROI 개수별 E2E 결과
 
 | ROI/frame | 표본 수 | 중앙값 | FPS |
