@@ -168,7 +168,10 @@ export의 FC scale에 흡수돼 있으므로 PS에서 다시 나누지 않는다
 현재 클래스별 제어 정책은 다음과 같다.
 
 - car/person: bbox 위치·높이에 따라 `Clear/Slow/Stop`; Stop은 HazardLatch 적용
-- sign 3종: 경로 안에서 bbox 폭이 `sign_slow_width` 이상이면 `Slow`, 그 외 `Clear`
+- sign 3종: bbox 폭이 `sign_slow_width` 이상이면 `Slow`, 그 외 `Clear`
+- sign 에는 **위치 조건을 적용하지 않는다** — `zone_x`(경로 좌우)도
+  `zone_y_min`(지면)도 보지 않는다. 2026-08-24 변경이며 화면 가장자리의
+  표지판도 정면의 것과 같게 판단한다 (`common/src/SafetyJudge.cpp`)
 - sign은 개별 정지표지판을 구분할 수 없으므로 `Stop`을 만들지 않고 래치되지 않음
 - 제어 판단은 분류 confidence를 보지 않음; 분류 성공 시 argmax class를 그대로 사용
 - 분류 결과가 `background`이고 경로 안의 큰 bbox면 미확정 장애물로 `Slow`,

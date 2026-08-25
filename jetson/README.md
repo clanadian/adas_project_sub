@@ -20,7 +20,7 @@ V4L2 YUYV
 | 컴포넌트 | 역할 | 상태 |
 | --- | --- | --- |
 | `V4L2Capture` | V4L2 MMAP 캡처, YUYV→BGR | 구현·실카메라 확인 |
-| `RoiProposer` | bbox 후보 생성·정렬·제한 (TensorRT YOLOv8n) | 구현·실보드 연동 확인 |
+| `RoiProposer` | bbox 후보 생성·정렬·제한 (TensorRT YOLOv8n) | 구현·실보드 연동 확인 (독립 단위 시험 없음) |
 | `RoiCropper` | margin, square crop, padding, resize | 구현·테스트 |
 | `RoiPreprocessor` | BGR→RGB | 구현·테스트 |
 | `TcpRoiClient` | ROI 전송, 결과 수신 | 구현·실보드 연동 확인 |
@@ -115,6 +115,60 @@ Run:
 ./jetson/build/jetson_roi_client /dev/video0 <PS_IP> 5000 \
     models/proposal/export/proposal_yolov8n_fp16.engine [mjpeg-port]
 ```
+
+## 검증 도구
+
+운영 진입점은 `jetson_roi_client` 하나다. 나머지 실행 파일은 목적이 다르므로
+지우기 전에 아래 분류를 확인한다. 셋 다 TensorRT 가 있을 때만 빌드된다.
+
+| 도구 | 분류 | 언제 쓰나 |
+| --- | --- | --- |
+| `proposal_golden_check` | 검증 | 엔진을 새로 만들었을 때 학습 모델과 결과가 같은지 |
+| `camera_roi_check` | 검증 | 카메라나 렌즈를 바꿨을 때 잘라낸 ROI 가 쓸 만한지 |
+| `classifier_gpu_benchmark` | 비교 실험 | FPGA·GPU 실행 시간 비교 재현 |
+
+`proposal_golden_check` 실행법과 기준값은 위 `TensorRT` 절에 있다.
+`classifier_gpu_benchmark` 는
+[`../docs/reports/JETSON_YOLO_TEST.md`](../docs/reports/JETSON_YOLO_TEST.md)
+를 본다.
+
+### camera_roi_check
+
+카메라 한 장을 실제로 찍어 후보 탐지와 crop 까지 돌린 뒤, 사람이 눈으로
+확인할 수 있게 이미지로 떨군다. 숫자가 아니라 **잘린 그림이 목적**이다 —
+FPGA 에 실제로 무엇이 들어가는지 보는 도구다.
+
+```bash
+./jetson/build/camera_roi_check /dev/video0 \
+    models/proposal/export/proposal_yolov8n_fp16.engine \
+    jetson/artifacts/camera_roi_check 5
+```
+
+인자는 `<video-device> <engine> [출력 디렉터리] [촬영 장수]` 이고 뒤의 둘은
+생략하면 `camera_roi_output` 과 1 장이다. 출력 디렉터리는 없으면 만든다.
+
+산출물은 두 종류다.
+
+```text
+frame_NNN.jpg              원본 프레임에 bbox 와 objectness 를 그린 것
+frame_<id>_roi_<n>.jpg     그 bbox 에서 잘라낸 96×96 RGB — FPGA 가 받는 그림
+```
+
+표준 출력에는 장마다 한 줄이 나온다.
+
+```text
+frame=2 size=640x360 proposals=3 crops=3
+```
+
+정상 판정은 다음 세 가지를 모두 만족할 때다.
+
+- `proposals` 와 `crops` 가 같다 (crop 이 버려진 후보가 없다)
+- `frame_NNN.jpg` 의 초록 박스가 실제 물체 위에 있다
+- `frame_*_roi_*.jpg` 안에 물체가 여백을 두고 온전히 들어 있다 — 잘리거나
+  한쪽으로 쏠려 있으면 `RoiCropper` 의 margin·정사각 보정을 다시 본다
+
+저장소에 커밋하지 않는다(`.gitignore`). 2026-08-19 확인분이
+`jetson/artifacts/camera_roi_check/` 에 남아 있다.
 
 ## 제어 코드의 위치와 최종 운용
 

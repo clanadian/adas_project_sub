@@ -67,6 +67,12 @@ ROW_ADDR      14                    15
   함정이 있다 — mrproper를 먼저 실행하고 그 다음 XSA를 채우도록 순서를 바로잡았다
   (`petalinux` 환경 메모리에 반영).
 
+  > **위치 변경 (2026-08-25).** XSA 원본은 이제
+  > `arty/hardware/classifier_z7_db.xsa` 에 두고,
+  > `project-spec/hw-description/` 은 임포트 때 다시 만들어지는 생성물로
+  > 추적하지 않는다. 현재 복원 절차는 최상위 [`../../README.md`](../../README.md)
+  > 의 `Hardware description` 절이 정본이다. 위 서술은 8/19 시점 기록이다.
+
 ## 4. 검증 체인
 
 수정된 XSA(`PCW_CRYSTAL_PERIPHERAL_FREQMHZ=50`, DDR `MT41J256M16 RE-125` 16비트)로

@@ -22,6 +22,13 @@ DB 클럭·DDR 진단 과정은
 >
 > EB 는 2026-08-20 미채택으로 결정돼 재측정하지 않았다. 아래 EB 수치는
 > 그 시점의 기록으로 남긴다.
+>
+> **추가 정정 (2026-08-25).** 위에서 가리킨 `E2E_MEASUREMENT_REPORT.md` 역시
+> 이후 측정으로 대체됐다. 현재 end-to-end 기준선은
+> [`SHUTDOWN_LOG_2026-08-24.md`](SHUTDOWN_LOG_2026-08-24.md)이고, ROI 개수별
+> 값은 [`ROI_COUNT_SCALING_REPORT_2026-08-24.md`](ROI_COUNT_SCALING_REPORT_2026-08-24.md)에
+> 있다. 본문 끝의 "추후 젯슨 단독 실행 비교 항목"은 2026-08-24 에 수행됐다 →
+> [`JETSON_YOLO_TEST.md`](JETSON_YOLO_TEST.md).
 
 ## 통제 비교 — FPS·confidence (같은 세션, 같은 카메라 조건)
 

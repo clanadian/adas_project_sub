@@ -24,8 +24,8 @@ Arty PS 분류 서버
 
 같은 PS 프로세스 안 두 스레드가 판단과 송신을 분리하므로, KR260의
 `SafetyMessage`(seqlock 공유 DDR)에 해당하는 코어 간 동기화가 필요 없다.
-전체 구조와 스레드를 나누는 이유는
-최종 결선은 [`../arty/ps_db/README.md`](../arty/ps_db/README.md)를 참고한다.
+전체 구조와 판단·송신 스레드를 나눈 이유는
+[`../arty/ps_db/README.md`](../arty/ps_db/README.md)를 참고한다.
 
 ## 이 프로젝트에서 실제로 쓰는 것
 
@@ -46,12 +46,23 @@ Arty PS 분류 서버
 
 위험 대상은 자동차·사람·표지판 3종(경고/규제/지시) 다섯 class다.
 car/person은 박스 화면상 위치와 높이를 거리·진행 경로의 대용값으로 써
-`Slow` 또는 `Stop`을 낸다. 표지판은 진행 경로 안에서 폭이
-`sign_slow_width` 이상일 때만 `Slow`이며 **절대 `Stop`을 만들지 않는다.**
-현재 분류기가 개별 정지 표지판을 구분하지 못하므로 모든 표지판에 정지를
-거는 오동작을 피하기 위한 정책이다. (2026-08-21부터 높이 대신 폭을 쓴다 —
-TurtleBot 카메라가 표지판을 올려다보는 각도라 세로 방향이 원근으로
-찌그러져 높이만으로는 실제 거리보다 작게 잡혔다.)
+`Slow` 또는 `Stop`을 낸다. 표지판은 폭이 `sign_slow_width` 이상이면
+`Slow`이며 **절대 `Stop`을 만들지 않는다.** 현재 분류기가 개별 정지
+표지판을 구분하지 못하므로 모든 표지판에 정지를 거는 오동작을 피하기 위한
+정책이다.
+
+**표지판에는 위치 조건이 없다.** 2026-08-24 부터 `judgeOne()`이 표지판에는
+`zone_x`(경로 좌우)도 `zone_y_min`(지면)도 적용하지 않는다. 벽이나 기둥에
+달려 있어 아랫변에 거리 정보가 없고, 길가에 서 있는 것이 정상이라 좌우
+위치도 적용 여부를 말해 주지 않기 때문이다. 화면 가장자리의 표지판도
+정면의 것과 같게 판단한다.
+
+2026-08-21 부터 높이 대신 폭을 쓴다. 다만 **바뀐 것은 축이 아니라 게이트
+높이다.** 비율이 축마다 따로 정규화되므로(x는 640, y는 360) 옛
+`height≥0.50`은 180px, 폭 기준 `0.20`은 128px 을 요구했다. 폭이 더 견고한
+축인지(카메라 각도로 세로가 찌그러지는지)는 의심만 했을 뿐 측정하지
+않았으므로 확정된 사실로 옮기지 않는다 — 근거는 `SafetyJudge.hpp` 의
+`sign_slow_width` 주석에 있다.
 
 `SafetyJudge`는 "이번 프레임에 뭐가 보이는가"만 순수하게 판단한다.
 반복 트리거 방지와 재출발 시점은 `HazardLatch`가 맡는다. 래치는 `Stop`에만
@@ -68,8 +79,7 @@ Released hold_ms를 넘기면 진입. 트리거한 class를 제외하고 재판�
 ```
 
 시간과 프레임 수를 함께 쓰는 이유는 프레임률 하나에만 의존하면 안 되기
-때문이다 — 자세한 근거는
-세부 임계값은 `SafetyJudge.hpp`와 Arty PS README에 기록한다.
+때문이다. 세부 임계값은 `SafetyJudge.hpp`와 Arty PS README에 기록한다.
 
 object tracking이 없어 "같은 개체인지 다른 개체인지"는 구분하지 못하고
 class 단위로만 근사한다. 이 제한은 Stop 이벤트를 만드는 car/person 래치에
@@ -81,8 +91,8 @@ class 단위로만 근사한다. 이 제한은 Stop 이벤트를 만드는 car/p
 
 판단 임계값(`JudgeConfig`)과 `hold_ms`/`release_ms`/`release_frames`
 (`HazardLatch::Config`)는 실보드에서 조정할 설정값이다. `zone_x`·`stop_height`
-등 기하 임계값은 카메라 장착 조건에 달려 있어 실물 캘리브레이션이 필요하다
-테스트는 Arty PS 빌드에서 함께 수행한다.
+등 기하 임계값은 카메라 장착 조건에 달려 있어 실물 캘리브레이션이
+필요하다. 테스트는 Arty PS 빌드에서 함께 수행한다.
 상태 값과 순서는 UART 계약과 연결되어 있으므로 임의로 변경하지 않는다.
 
 ## R5 호환 규칙 — 왜 아직 지키는가
@@ -110,20 +120,29 @@ class 단위로만 근사한다. 이 제한은 Stop 이벤트를 만드는 car/p
 
 ## 빌드와 테스트
 
-이 프로젝트는 `common/`을 독립적으로 빌드하지 않는다. PS와 Jetson 빌드가
-필요한 소스를 직접 링크한다.
+운영 빌드는 `common/`을 하나의 라이브러리로 묶지 않는다. Arty PS 의
+`adas_ps_safety` 가 필요한 소스를 직접 링크한다. **Jetson 은 이 계층을
+링크하지 않으므로 젯슨 빌드로는 검증되지 않는다.**
 
 ```bash
-cmake -S jetson -B jetson/build
-cmake --build jetson/build -j2
-ctest --test-dir jetson/build --output-on-failure
+cmake -S arty/ps_db -B arty/ps_db/build
+cmake --build arty/ps_db/build -j2
+ctest --test-dir arty/ps_db/build --output-on-failure
 ```
 
 관련 테스트:
 
-- `test_detection_adapter`: 좌표 변환, class 매핑, Unclassified 4경로
-- `test_safety_decider`: zone·높이 경계, 표지판 규칙, 래치 전이 (`SafetyJudge`/`HazardLatch` 검증 포함)
+- `test_safety_judge`: zone·높이 경계, 표지판 규칙, 래치 전이 (`SafetyJudge`/`HazardLatch`)
 - `test_safety_transmitter`: 주기, watchdog, STOP 즉시 송신, 프레임 바이트
+
+`common/CMakeLists.txt` 는 이 계층 **전체의 컴파일 점검**용이다. PS 가
+링크하는 것은 세 소스뿐이라, 이 파일을 돌리지 않으면 `SafetyMessage.cpp` 와
+`SafetyDebounce.cpp` 는 어느 빌드에서도 컴파일되지 않는다. `common/` 을
+고쳤으면 한 번 돌려서 다섯 소스가 다 살아 있는지 본다.
+
+```bash
+cmake -S common -B common/build && cmake --build common/build -j2
+```
 
 ## Jetson-Arty 판에서 바뀐 것
 

@@ -26,8 +26,12 @@ ROI 단위 분류 구조에서는 서로 다른 세 숫자가 전부 FPS라고 �
 재현도 비교도 되지 않는다.** 그래서 요약 출력은 `N`별 프레임 시간 표를
 따로 낸다. 보고서에는 이렇게 적는 것이 정확하다.
 
-> 검출 ROI 2건 기준 frame FPS 14.9, ROI 처리량 34.6 ROI/s,
-> 카메라 대기를 뺀 처리분 상한 20.7 FPS
+> 검출 ROI 2건 기준 frame FPS 22.8, ROI 처리량 47.5 ROI/s,
+> 카메라 대기를 뺀 처리분 상한 28.1 FPS
+
+위 예시는 `SHUTDOWN_LOG_2026-08-24.md`의 값이다. 같은 자리에 있던 옛
+예시(frame FPS 14.9 / 34.6 ROI/s / 20.7 FPS)는 TCP 응답 40 ms 지연이 있던
+시점의 값이라 교체했다.
 
 ---
 
@@ -100,7 +104,7 @@ sudo jetson_clocks
 insmod adas_classifier_drv.ko
 
 ADAS_PS_CSV=/tmp/ps_nodelay_off.csv \
-./ps_classifier_server "*" 5000 /opt/adas/model \
+./ps_classifier_server "*" 5000 /home/petalinux/arty_deploy_v2/model \
     6 1 1342756158 38 1322019071 35 1920779908 38 2.9190799511495295e-05
 ```
 
@@ -149,8 +153,9 @@ PS 서버는 콘솔에 평균·최소·최대만 찍는다. **백분위수는 CS
 | `RTT` ≫ PS `server total` | **네트워크 병목** | §5, 링크 속도, 경유 장비 |
 | `RTT`의 median은 작은데 p95가 크다 | **간헐적 정체** — 평균만 보면 안 보인다 | §5 |
 
-`pl_run`은 실보드 골든 테스트에서 **6.57 ms**로 측정된 값이다. 이것보다
-크게 나오면 그 자체가 조사 대상이다.
+`pl_run`의 기준은 실보드 골든 테스트의 **6.597 ms / 6.613 ms**
+(`accelerator time=6597 us`, `6613 us`)이고, 라이브 세션 평균은
+**6.611~6.617 ms**다. 이것보다 크게 나오면 그 자체가 조사 대상이다.
 
 ---
 

@@ -157,11 +157,11 @@ arty/models/roi_classifier_int8_db/export/
 DB bitstream과 DMA 경로는 실제 모델 export의 입력·최종 출력으로 검증한다.
 
 ```bash
-mkdir -p /opt/adas/golden_report
+mkdir -p /home/petalinux/golden_report
 ./ps_db_golden_test \
-  /opt/adas/model \
+  /home/petalinux/arty_deploy_v2/model \
   /dev/adas_classifier \
-  /opt/adas/golden_report \
+  /home/petalinux/golden_report \
   2000
 ```
 
