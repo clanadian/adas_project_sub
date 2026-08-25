@@ -36,3 +36,11 @@ __pycache__/
 *.engine
 *.plan
 jetson/models/classifier_benchmark/
+
+# bitbake 가 만드는 build/ 안쪽으로 향하는 절대경로 심볼릭 링크
+arty/ps_db/oe-logs
+arty/ps_db/oe-workdir
+
+# XSA 에서 다시 추출되는 하드웨어 기술 파일. 원본은 arty/hardware/ 에 둔다.
+# 여기에 두면 mrproper 가 XSA 까지 같이 지운다.
+arty/classifier_linux_db/project-spec/hw-description/

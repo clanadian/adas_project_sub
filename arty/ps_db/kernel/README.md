@@ -29,3 +29,18 @@ dmesg | tail
 
 DMA 영역의 물리주소는 드라이버 내부에서만 사용한다. 사용자 공간에서
 `/dev/mem`, 물리주소 계산 또는 cache flush를 수행하지 않는다.
+
+## 소스 위치
+
+`adas_classifier_drv.c`는 PetaLinux 레시피의 파일을 가리키는 심볼릭 링크다.
+
+```text
+arty/classifier_linux_db/project-spec/meta-user/recipes-modules/adas-classifier/files/adas-classifier.c
+```
+
+보드 이미지에 들어가는 것이 그 파일이므로 **수정은 레시피 쪽에서 한다.**
+예전에는 같은 내용이 양쪽에 복사돼 있어 한쪽만 고치면 조용히 어긋났다.
+
+`adas_classifier_uapi.h`는 여전히 두 벌이다. `../include/driver/`의 것은
+사용자 공간 빌드가 쓰고, 레시피 `files/`의 것은 bitbake 가 쓴다. ABI 를
+바꾸면 **두 파일을 함께 고친다.**

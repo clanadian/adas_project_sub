@@ -26,7 +26,6 @@ TCP server
 | `pl_mmio` | 초기 bring-up용 `/dev/mem` MMIO | 단위 테스트용으로 유지 |
 | `classifier_registers` | AXI-Lite base와 register offset | 확정 |
 | `classifier_accelerator` | buffer/parameter/start/done 제어 | 구현·실보드 검증 완료 |
-| `dummy_roi_service` | PL 없이 고정 결과 반환 | 임시·테스트 |
 | `classifier_model` | Conv/FC 바이너리 로드·크기 검사 | 구현·테스트 |
 | GAP/FC/argmax | PL 출력 후처리 | 구현·실보드 bit-exact 검증 완료 |
 | `adas_classifier_confidence_ppm` | logits×logits_scale → softmax → confidence_ppm | 구현·golden 벡터 일치 확인 |
@@ -55,12 +54,6 @@ TCP server
 cmake -S arty/ps_db -B arty/ps_db/build
 cmake --build arty/ps_db/build -j2
 ctest --test-dir arty/ps_db/build --output-on-failure
-```
-
-Dummy server:
-
-```bash
-./arty/ps_db/build/ps_dummy_server 0.0.0.0 5000
 ```
 
 실제 서버는 먼저 `adas_classifier_drv.ko`를 로드하여

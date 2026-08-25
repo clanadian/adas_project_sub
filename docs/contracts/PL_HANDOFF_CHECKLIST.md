@@ -25,6 +25,16 @@ Arty Z7-20 의 물리 사양이다. **PL 설계와 무관하며 협의 대상이
 | `PCW_SD0_PERIPHERAL_ENABLE` | `1` |
 | `PCW_SD0_SD0_IO` | `MIO 40 .. 45` |
 
+TurtleBot 링크용 UART1 도 같은 스크립트로 검사한다. 이쪽은 물리 사양이 아니라
+설계 결정이지만, 빠져도 합성과 부팅은 정상이고 `/dev/ttyPS1` 만 생기지 않아
+안전 신호가 조용히 끊긴다.
+
+| 파라미터 | 값 |
+| --- | --- |
+| `PCW_UART1_PERIPHERAL_ENABLE` | `1` |
+| `PCW_UART1_UART1_IO` | `EMIO` |
+| `PCW_EN_EMIO_UART1` | `1` |
+
 위 값은 최종 DB XSA와 `arty/tools/check_xsa.sh`의 검사 기준이다. 새 XSA는
 반드시 해당 스크립트로 검사한다. 과거 PS7 프리셋은 Git 태그
 `eb-comparison-final`에 보존되어 있지만 현재 설계의 정본으로 사용하지 않는다.

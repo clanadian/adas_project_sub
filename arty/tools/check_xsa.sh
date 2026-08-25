@@ -24,6 +24,15 @@ declare -a REQUIRED=(
   "SD0_SD0_IO|MIO 40 .. 45"
 )
 
+# UART1 은 TurtleBot 링크다. 물리 사양이 아니라 설계 결정이지만, 빠지면
+# 합성·부팅은 멀쩡한데 /dev/ttyPS1 이 없어 안전 신호만 조용히 끊긴다.
+declare -a REQUIRED_UART1=(
+  "UART1_PERIPHERAL_ENABLE|1"
+  "UART1_UART1_IO|EMIO"
+  "EN_EMIO_UART1|1"
+)
+REQUIRED+=("${REQUIRED_UART1[@]}")
+
 hwh=$(unzip -l "$XSA" 2>/dev/null | grep -oE '[^ ]+\.hwh' | head -1)
 [[ -n $hwh ]] || { echo "XSA 안에서 .hwh 를 못 찾았다: $XSA" >&2; exit 2; }
 

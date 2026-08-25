@@ -98,6 +98,7 @@ RPi가 라우팅하므로 둘 다 RPi를 거쳐 접속한다(`-J`가 경유지�
 | `arty/ps_db/` | DB PL용 TCP server, 전처리, 가속기 제어, 후처리, 안전 판단·UART 송신 |
 | `arty/pl_db/` | DB 96×96 ROI 분류 가속기 HLS 소스와 보고서 |
 | `arty/models/` | DB PL용 INT8 양자화 산출물 |
+| `arty/hardware/` | PL 팀에서 받은 XSA 원본(`classifier_z7_db.xsa`) — 하드웨어 정본 |
 | `arty/classifier_linux_db/` | 최종 DB XSA 기반 PetaLinux 프로젝트 |
 | `arty/deploy/` | SD 카드 굽기·검사 스크립트(`burn_sd.sh`, `inspect_sd.sh`) |
 | `arty/tools/` | XSA 하드웨어 설정 검증(`check_xsa.sh`) |
@@ -188,6 +189,29 @@ OFF, ROS 노드 종료를 순서대로 수행한다.
 
 상세 절차와 장애 대응은
 [`turtlebot/docs/SERVER_START_STOP.md`](turtlebot/docs/SERVER_START_STOP.md)에 있다.
+
+## Hardware description
+
+PL 하드웨어의 정본은 `arty/hardware/classifier_z7_db.xsa` 하나다. PetaLinux
+프로젝트의 `project-spec/hw-description/`은 이 XSA 를 임포트할 때 다시 만들어지는
+생성물이므로 추적하지 않는다. XSA 를 그 디렉터리 안에 두지 않는 이유는
+`mrproper`가 XSA 까지 같이 지우기 때문이다
+([`docs/reports/DB_ARTY_BRINGUP_REPORT.md`](docs/reports/DB_ARTY_BRINGUP_REPORT.md) §참고).
+
+새로 clone 한 뒤, 또는 XSA 를 교체할 때는 다음 순서로 복원한다.
+
+```bash
+source /home/adas/petalinux/2024.2/settings.sh
+
+arty/tools/check_xsa.sh arty/hardware/classifier_z7_db.xsa
+
+cd arty/classifier_linux_db
+petalinux-build -x mrproper
+petalinux-config --get-hw-description=../hardware/classifier_z7_db.xsa --silentconfig
+petalinux-build
+```
+
+`mrproper`가 먼저다. 순서를 바꾸면 XSA 가 지워진 채로 임포트가 실패한다.
 
 ## Build and test
 
