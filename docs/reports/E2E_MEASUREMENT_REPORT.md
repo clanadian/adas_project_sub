@@ -3,8 +3,8 @@
 측정 2026-08-20 ~ 2026-08-21 · 측정자 Claude
 · 대상 DB 배포본(`z7_classifier_96_hls_100mhz_dsppack`, 100 MHz)
 
-이 문서는 `PROJECT_OVERVIEW.md` §9 의 **"엔드투엔드 FPS 측정 — 아직 수치로
-남기지 않았다"** 를 채운다. 모든 숫자는 `ps_classifier_server` 세션 요약,
+이 문서는 초기 계획의 **"엔드투엔드 FPS 측정"**을 완료한 결과다. 모든 숫자는
+`ps_classifier_server` 세션 요약,
 `jetson_roi_client` 측정 요약, `tcpdump`, UART 원시 바이트에서 **가공 없이**
 그대로 옮겼다. 추정치는 없다.
 
@@ -150,7 +150,7 @@ ROI 개수별 프레임 시간(중앙값). 같은 보드·같은 비트스트림
 > 반영돼 있으나, 보드 바이너리는 재빌드되지 않았다. tcpdump 로 확인하면
 > 응답이 여전히 `length 20` + `length 12` 두 패킷이다(간격은 0). 환경변수를
 > 빼고 띄우면 40 ms 가 그대로 돌아온다. 재배포 후 `length 32` 한 패킷을
-> 확인해야 완료다. → [`PS_TCP_RESPONSE_FIX.md`](../PS_TCP_RESPONSE_FIX.md)
+> 확인해야 완료다. → [`PS_TCP_RESPONSE_FIX.md`](PS_TCP_RESPONSE_FIX.md)
 
 ---
 
@@ -288,7 +288,7 @@ sudo ps_db_golden_test ~/arty_deploy_v2/model
 없다). 따라서 **젯슨을 먼저 `SIGINT` 로 내려야** 기록이 남는다.
 
 ```bash
-ssh -J ubuntu@10.10.16.200 jetson@192.168.100.2 "pkill -INT -f '[j]etson_roi_clie'"
+ssh -J ubuntu@10.10.16.200 jetson@192.168.100.2 "pkill -INT -f '[j]etson_roi_client'"
 ```
 ```sh
 sudo sed -n '/=== session summary ===/,/=====/p' /home/petalinux/server.log | tail -14

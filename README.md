@@ -1,5 +1,21 @@
 # Jetson–Arty ROI Classifier
 
+## 데모 기동
+
+현재 조립·배포된 세 보드의 기동과 종료는
+[`docs/THREE_BOARD_QUICK_START.md`](docs/THREE_BOARD_QUICK_START.md)를 따른다.
+이 문서가 **현재 네트워크 주소, SSH 경유 경로와 서비스 순서의 정본**이다.
+
+```text
+물리 전원 ON : RPi → Arty·Jetson
+서비스 기동  : Arty → Jetson → RPi
+서비스 종료  : Jetson → Arty → RPi
+```
+
+SD카드와 배선이 현재 상태라면 IP 재설정이나 파일 재배포는 필요 없다. 작업
+PC에서 Arty와 Jetson에 접속할 때는 RPi(`10.10.16.200`)를 반드시 점프
+호스트로 사용한다. 다른 문서의 실험·복구 절차보다 위 빠른 기동 문서를 우선한다.
+
 ## Architecture
 
 ```text
@@ -94,17 +110,10 @@ RPi가 라우팅하므로 둘 다 RPi를 거쳐 접속한다(`-J`가 경유지�
 
 | 문서 | 내용 |
 | --- | --- |
-| [`docs/bringup/ARTY_SD_BOOT_USAGE.md`](docs/bringup/ARTY_SD_BOOT_USAGE.md) | 최종 DB SD 부팅, Jetson 연결 사용법 |
-| [`docs/bringup/ARTY_NETWORK_SETUP.md`](docs/bringup/ARTY_NETWORK_SETUP.md) | Arty 네트워크 인터페이스 설정 |
 | [`docs/THREE_BOARD_QUICK_START.md`](docs/THREE_BOARD_QUICK_START.md) | 세 보드 전원·서비스 빠른 기동 및 종료 |
-| [`docs/bringup/DB_EB_VERIFICATION_SUMMARY.md`](docs/bringup/DB_EB_VERIFICATION_SUMMARY.md) | DB/EB 검증 결과 비교 |
-| [`docs/reports/E2E_MEASUREMENT_REPORT.md`](docs/reports/E2E_MEASUREMENT_REPORT.md) | Jetson→Arty→TurtleBot 지연·처리량 실측 |
-| [`docs/reports/ROI_COUNT_SCALING_REPORT_2026-08-24.md`](docs/reports/ROI_COUNT_SCALING_REPORT_2026-08-24.md) | 실제 ROI 5개 실측과 ROI 10개 처리량 환산 |
-| [`docs/JETSON_YOLO_TEST.md`](docs/JETSON_YOLO_TEST.md) | Jetson MAXN·5W GPU 분류 실험 |
-| [`docs/reports/CONTROL_LOGIC_REVIEW_2026-08-21.md`](docs/reports/CONTROL_LOGIC_REVIEW_2026-08-21.md) | confidence/background 안전 판단 검토와 반영 결과 |
-| [`docs/reports/SHUTDOWN_LOG_2026-08-21_1630.md`](docs/reports/SHUTDOWN_LOG_2026-08-21_1630.md) | 배포 전 종료 로그와 성능 기준선 |
-| [`docs/reports/SHUTDOWN_LOG_2026-08-24.md`](docs/reports/SHUTDOWN_LOG_2026-08-24.md) | ROI 5개 측정 세션과 8월 21일 기준선 비교 |
-| [`docs/contracts/PL_HANDOFF_CHECKLIST.md`](docs/contracts/PL_HANDOFF_CHECKLIST.md) | PL 인계 산출물 인수 기준 |
+| [`docs/contracts/ROI_CLASSIFIER_CONTRACT.md`](docs/contracts/ROI_CLASSIFIER_CONTRACT.md) | Jetson–PS–PL 데이터 및 하드웨어 계약 정본 |
+| [`docs/bringup/ARTY_SD_BOOT_USAGE.md`](docs/bringup/ARTY_SD_BOOT_USAGE.md) | SD 이미지 재구성·복구 절차 |
+| [`docs/reports/README.md`](docs/reports/README.md) | 실측·비교·트러블슈팅 보고서 색인 |
 
 ## Current measurement
 

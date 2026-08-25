@@ -2,6 +2,18 @@
 
 대상: Arty Z7-20 + Jetson Nano + TurtleBot Raspberry Pi
 
+이 문서는 **현재 조립·배포된 데모 장비의 정본 기동 절차**다. SD카드, 전원,
+카메라, UART와 Ethernet 배선은 검증 당시 상태 그대로 유지한다고 가정한다.
+데모 기동을 위해 IP를 다시 설정하거나 파일을 재배포할 필요는 없다.
+
+## 기동 전 확인
+
+- 작업 PC가 RPi와 같은 네트워크에 연결돼 있다.
+- USB 카메라는 Jetson에 연결돼 있고 `/dev/video0`으로 인식된다.
+- RPi 전원과 네트워크를 먼저 켠다. RPi가 Jetson·Arty의 SSH 경유지이자
+  라우터이므로 RPi가 부팅되지 않으면 나머지 보드에 접속할 수 없다.
+- 현재 배선을 분리하거나 네트워크 주소를 변경하지 않는다.
+
 ## 순서
 
 ```text
@@ -15,18 +27,19 @@ RPi는 Jetson과 Arty로 들어가는 SSH 경유지이므로 전원은 먼저 �
 
 ## 접속 주소 한눈에 보기
 
-| 대상 | 주소 | 어디에서 접속하나 | 용도 |
+| 대상 | 주소·계정 | 어디에서 접속하나 | 용도 |
 |---|---|---|---|
-| RPi | `10.10.16.200` | 작업 PC | SSH 경유지·TurtleBot·통합 UI |
-| Arty | `10.10.16.61` | 작업 PC에서 RPi를 SSH 점프 호스트로 사용 | 분류 서버·PS 안전 판단 |
-| Jetson | `192.168.100.2` | 작업 PC에서 RPi를 SSH 점프 호스트로 사용 | 카메라·후보 탐지·MJPEG |
+| RPi | `ubuntu@10.10.16.200` | 작업 PC | SSH 경유지·TurtleBot·통합 UI |
+| Arty | `petalinux@10.10.16.61` | 작업 PC에서 RPi를 SSH 점프 호스트로 사용 | 분류 서버·PS 안전 판단 |
+| Jetson | `jetson@192.168.100.2` | 작업 PC에서 RPi를 SSH 점프 호스트로 사용 | 카메라·후보 탐지·MJPEG |
 | Jetson MJPEG | `http://10.10.16.200:8080` | 작업 PC 브라우저 | RPi가 Jetson `:8080`으로 포트 전달 |
 | 통합 UI | `http://10.10.16.200:8090` | 작업 PC 브라우저 | RPi가 HTML·안전 상태·속도 제공 |
 
+로그인 비밀번호는 RPi `ubuntu`, Arty와 Jetson `123456`이다.
+
 `192.168.100.2`는 RPi와 Jetson 사이의 유선망 주소이므로 작업 PC에서 직접
-접속하지 않는다. 예전에 사용한 Jetson 주소 `10.10.16.108`도 현재 구성에서는
-사용하지 않는다. 작업 PC에서 Arty나 Jetson으로 들어갈 때는 항상
-`10.10.16.200`을 경유한다.
+접속하지 않는다. 작업 PC에서 Arty나 Jetson으로 들어갈 때는 항상
+`10.10.16.200`을 경유하며, 이 표에 없는 주소는 사용하지 않는다.
 
 ## 1. 네트워크 확인
 
@@ -57,6 +70,15 @@ ssh -J ubuntu@10.10.16.200 petalinux@10.10.16.61
 sudo ps_db_golden_test ~/arty_deploy_v2/model
 ```
 
+서버가 이미 떠 있는지 먼저 확인한다.
+
+```sh
+grep -a ':1388' /proc/net/tcp && echo 'Arty already running'
+```
+
+`Arty already running`이 출력되면 아래 실행 명령을 다시 입력하지 않고 포트
+확인 단계로 넘어간다.
+
 분류 서버와 UART 안전 상태 송신을 시작한다.
 
 ```sh
@@ -77,6 +99,15 @@ grep -a ':1388' /proc/net/tcp && echo 'Arty LISTEN OK'
 ```bash
 ssh -J ubuntu@10.10.16.200 jetson@192.168.100.2
 ```
+
+이미 실행 중인지 먼저 확인한다.
+
+```bash
+pgrep -af jetson_roi_client
+```
+
+프로세스가 출력되면 `start_adas.sh`를 다시 실행하지 않는다. 아무것도 나오지
+않을 때만 다음 명령을 실행한다.
 
 ```bash
 setsid nohup ~/start_adas.sh > /tmp/jetson.log 2>&1 < /dev/null &

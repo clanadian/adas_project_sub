@@ -326,6 +326,6 @@ sudo tcpdump -i enx00e04c680398 -nn -ttt 'tcp port 5000' -c 120
 - 젯슨 측정 요약 원본: 젯슨 `/tmp/jetson_qa.log`, `/tmp/jetson.log`
 - 가속기 단독 시간 근거: golden 테스트 `accelerator time=6613 us`
 - 젯슨 접속: `ssh -J ubuntu@10.10.16.200 jetson@192.168.100.2`
-  (10.10.16.160 은 죽었고, 유저명은 `nvidia` 가 아니라 `jetson`)
+  (유저명은 `jetson`이며 RPi를 반드시 경유한다.)
 - 아티는 재플래시로 SSH 키가 날아가 접속 불가 상태다. 이 문서의 수정은
   보드에 직접 붙을 수 있는 사람이 해야 한다.

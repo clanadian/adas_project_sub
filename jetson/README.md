@@ -28,7 +28,7 @@ V4L2 YUYV
 
 `실보드 연동`은 Arty DB 보드에 실제 카메라 프레임을 계속 전송해 확인한
 것이다. 자세한 수치는
-[`../docs/bringup/DB_ARTY_BRINGUP_REPORT.md`](../docs/bringup/DB_ARTY_BRINGUP_REPORT.md) §5를
+[`../docs/reports/DB_ARTY_BRINGUP_REPORT.md`](../docs/reports/DB_ARTY_BRINGUP_REPORT.md) §5를
 본다. `MjpegStreamServer`는 분류 루프와 분리된 서버 스레드에서 동작하며,
 느린 브라우저 연결이 추론을 막지 않도록 최신 JPEG 프레임만 게시한다.
 
@@ -135,7 +135,7 @@ Arty에 보내고 분류 결과를 화면에 표시한다. Arty PS가 bbox와 �
 파이프라인 구간별 지연과 FPS는 실행 중 자동으로 수집되고 종료 시(Ctrl-C)
 요약이 출력된다. 환경변수(`ADAS_MEASURE_QUIET`, `ADAS_MEASURE_CSV`,
 `ADAS_TCP_NODELAY` 등)와 판정 절차는
-[`../docs/FPS_MEASUREMENT_GUIDE.md`](../docs/FPS_MEASUREMENT_GUIDE.md)를 본다.
+[`../docs/reports/FPS_MEASUREMENT_GUIDE.md`](../docs/reports/FPS_MEASUREMENT_GUIDE.md)를 본다.
 
 ```bash
 ADAS_MEASURE_QUIET=1 ADAS_MEASURE_CSV=/tmp/jetson.csv \

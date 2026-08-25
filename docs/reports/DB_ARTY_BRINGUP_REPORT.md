@@ -1,5 +1,10 @@
 # Arty Z7-20 DB 브링업 보고서 — 2026-08-19
 
+> **과거 진단 기록:** 이 문서의 initramfs, 미배포 파일과 미완료 항목 설명은
+> 2026-08-19 당시 상태다. 현재 장비의 부팅·네트워크·실행 방법에는 사용하지
+> 않으며, 운영 정본은
+> [`../THREE_BOARD_QUICK_START.md`](../THREE_BOARD_QUICK_START.md)다.
+
 ## 1. 결론
 
 DB 보드가 부팅 실패 상태에서 시작해 같은 날 **Jetson 카메라 실사용 조건까지 연동을 확인**했다.
@@ -83,9 +88,10 @@ ROW_ADDR      14                    15
 
 ## 5. Jetson 실카메라 연동 결과
 
-Jetson(10.10.16.160)에서 `jetson_roi_client`를 카메라(`/dev/video0`)와 TensorRT
-YOLOv8n 엔진(`proposal_yolov8n_fp16.engine`)으로 실행해 Arty DB 보드
-(10.10.16.61:5000)로 20초간 스트리밍했다.
+Jetson에서 `jetson_roi_client`를 카메라(`/dev/video0`)와 TensorRT YOLOv8n
+엔진(`proposal_yolov8n_fp16.engine`)으로 실행해 Arty DB 분류 서버로 20초간
+스트리밍했다. 현재 접속 주소와 경로는 `docs/THREE_BOARD_QUICK_START.md`를
+정본으로 사용한다.
 
 ```text
 캡처:  V4L2Capture /dev/video0  YUYV 640x360 @30fps
@@ -109,7 +115,9 @@ class_id는 1(car)·2(person)이 주로 나왔고 4(sign_prohibition)도 간헐�
   6-op 시퀀서로 다시 구현했다(커널 드라이버 ABI 2, `compatible` 도 분리).
   bias 가 레지스터가 아니라 DDR 인 것과 ping-pong 활성 버퍼가 DB 와의 핵심
   차이다. 당시 `ps_eb_golden_test`로 op 6개를 단계별 검증했고,
-  비교 결과는 `DB_EB_VERIFICATION_SUMMARY.md`에 보존했다. 관련 소스는
+  비교 결과는
+  [`../reports/DB_EB_VERIFICATION_SUMMARY.md`](../reports/DB_EB_VERIFICATION_SUMMARY.md)에
+  보존했다. 관련 소스는
   Git 태그 `eb-comparison-final`에서 복원할 수 있다.
 - **`ps_classifier_server`가 아직 rootfs 레시피에 없다.** 오늘은 1회성 검증을 위해
   `arty/classifier_linux_db/build/.../ps-db-golden-test`가 생성한 툴체인 파일을

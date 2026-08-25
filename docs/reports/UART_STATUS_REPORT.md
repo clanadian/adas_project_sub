@@ -136,7 +136,7 @@ Arty 서버가 남긴 직전 세션 요약 (61,710 requests, **errors 0**):
 golden 검증도 통과했다: **9216 bytes bit-exact, accelerator 6,597 µs.**
 
 참고로 어제까지는 이 왕복이 **51.6 ms** 였다. 44 ms 가 TCP 대기였고,
-그 원인과 수정은 [`PS_TCP_RESPONSE_FIX.md`](../../docs/PS_TCP_RESPONSE_FIX.md) 에 있다.
+그 원인과 수정은 [`PS_TCP_RESPONSE_FIX.md`](PS_TCP_RESPONSE_FIX.md)에 있다.
 
 ---
 
@@ -147,8 +147,8 @@ UART 와 무관하다. 실제로 오늘 다 겪은 것들이다.
 ### 5.1 SSH 계정이 `root` 가 아니라 **`petalinux`**
 
 ```bash
-ssh petalinux@10.10.16.61      # O
-ssh root@10.10.16.61           # X — Permission denied
+ssh -J ubuntu@10.10.16.200 petalinux@10.10.16.61  # O
+# root 계정은 사용하지 않는다.
 ```
 
 `root` 로 시도하면 키가 멀쩡해도 막힌다. 나도 어제 이것 때문에 "SSH 불가"로
@@ -209,7 +209,7 @@ stdout 을 파일로 리다이렉트하면 블록 버퍼링이라 기동 배너�
 ### 7.1 Arty — 서버
 
 ```bash
-ssh petalinux@10.10.16.61
+ssh -J ubuntu@10.10.16.200 petalinux@10.10.16.61
 ```
 
 ```sh

@@ -26,8 +26,8 @@ Parameters
   safety_timeout_sec  float  stale safety_state → STOP (default 2.0)
   joy_timeout_sec     float  no joy message → zero twist (default 1.0)
   publish_hz          float  cmd_vel publish rate (default 10.0)
-  slow_linear_max     float  SLOW linear cap m/s (default 0.10)
-  slow_angular_max    float  SLOW angular cap rad/s (default 0.8)
+  slow_linear_max     float  SLOW linear cap m/s (default 0.05)
+  slow_angular_max    float  SLOW angular cap rad/s (default 0.30)
   linear_axis_sign    float  use -1.0 if forward/backward is reversed
   stick_deadzone      float  ignore small stick movement (default 0.12)
   cardinal_snap_ratio float  suppress perpendicular-axis wobble (default 0.45)
@@ -58,8 +58,18 @@ _MAX_LINEAR = 0.22   # m/s
 _MAX_ANGULAR = 2.84  # rad/s
 
 # --- Speed caps for SLOW safety state ---
-_SLOW_LINEAR = 0.10   # m/s
-_SLOW_ANGULAR = 0.8   # rad/s
+# 2026-08-24: 0.10 / 0.8 이었는데 SLOW 가 전혀 체감되지 않았다. 평상시
+# 조종 속도가 button_teleop 의 LIN=0.1 / ANG=0.5 라서 상한이 그보다 높거나
+# 같았고, 따라서 아무것도 깎이지 않았기 때문이다. 상한은 평상시 속도보다
+# 확실히 낮아야 의미가 있다.
+#
+# 이 값을 바꿀 때는 button_teleop.py 의 LIN / ANG 을 같이 볼 것.
+# 한 판 실행만 다르게 하려면 재빌드 없이 덮어쓸 수 있다:
+#   ros2 run rpi_adas_demo cmd_vel_arbiter --ros-args -p slow_linear_max:=0.04
+# 0.03 / 0.25 로 내렸더니 이번엔 너무 느려서 답답했다. 평상시의 절반쯤이
+# 느려진 게 보이면서 쓸 만하다는 결론 (2026-08-24 주행 확인).
+_SLOW_LINEAR = 0.05   # m/s    평상시 0.1 의 1/2
+_SLOW_ANGULAR = 0.30  # rad/s  평상시 0.5 의 0.6 배
 
 # Stick dead zone (in raw [-1, 1] axis space; joy_node also applies deadzone)
 _NEUTRAL_THRESH = 0.05

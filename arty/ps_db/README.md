@@ -36,7 +36,7 @@ TCP server
 
 `실보드 검증`은 `ps_db_golden_test`(PL 출력 bit-exact 대조)와 실제 Jetson 카메라
 연동 테스트로 확인한 것이다. 자세한 내용과 수치는
-[`../../docs/bringup/DB_ARTY_BRINGUP_REPORT.md`](../../docs/bringup/DB_ARTY_BRINGUP_REPORT.md)에
+[`../../docs/reports/DB_ARTY_BRINGUP_REPORT.md`](../../docs/reports/DB_ARTY_BRINGUP_REPORT.md)에
 있다.
 
 ## AXI-Lite map
@@ -146,10 +146,12 @@ arty/models/roi_classifier_int8_db/export/
 요청 한 건의 구간별 소요 시간(preprocess / pl_run / postprocess)은 실행 중
 자동으로 수집되고, 연결이 끊길 때 세션 요약이 출력된다. `ADAS_PS_CSV`,
 `ADAS_PS_REPORT_EVERY`, `ADAS_TCP_NODELAY` 사용법과 판정 절차는
-[`../../docs/FPS_MEASUREMENT_GUIDE.md`](../../docs/FPS_MEASUREMENT_GUIDE.md)에
+[`../../docs/reports/FPS_MEASUREMENT_GUIDE.md`](../../docs/reports/FPS_MEASUREMENT_GUIDE.md)에
 있다.
 
-개념과 코드의 대응은 `docs/PS_PIPELINE_STUDY.md`에 정리되어 있다.
+전체 데이터 계약은
+[`../../docs/contracts/ROI_CLASSIFIER_CONTRACT.md`](../../docs/contracts/ROI_CLASSIFIER_CONTRACT.md),
+시스템 개요는 저장소 최상위 `README.md`를 사용한다.
 
 ## Board golden test
 

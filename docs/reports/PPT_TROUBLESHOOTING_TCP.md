@@ -136,6 +136,6 @@ PL 연산은 약 8ms 시점에 이미 끝났으며, 결과 12B가 첫 응답으�
 
 ## 상세 근거
 
-- [`../PS_TCP_RESPONSE_FIX.md`](../PS_TCP_RESPONSE_FIX.md)
+- [`PS_TCP_RESPONSE_FIX.md`](PS_TCP_RESPONSE_FIX.md)
 - [`E2E_MEASUREMENT_REPORT.md`](E2E_MEASUREMENT_REPORT.md)
 - `arty/ps_db/src/network/tcp_roi_server.c`

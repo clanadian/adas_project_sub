@@ -13,7 +13,7 @@ arty/
 
 최종 지원 대상은 DB 구현이다. 비교 실험에 사용한 EB 소스·모델·
 PetaLinux 프로젝트는 Git 태그 `eb-comparison-final`에 보존하고, 실측
-결과는 [`../docs/bringup/DB_EB_VERIFICATION_SUMMARY.md`](../docs/bringup/DB_EB_VERIFICATION_SUMMARY.md)에 남겨 둔다.
+결과는 [`../docs/reports/DB_EB_VERIFICATION_SUMMARY.md`](../docs/reports/DB_EB_VERIFICATION_SUMMARY.md)에 남겨 둔다.
 
 PS는 Jetson에서 원본 bbox 메타데이터와 96x96 RGB UINT8 ROI를 TCP로 받고, INT8 양자화와
 98x98 pre-padding을 수행한 뒤 PL을 실행한다. PL의 12x12x64 feature map은

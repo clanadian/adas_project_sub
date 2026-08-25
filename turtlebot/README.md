@@ -1,6 +1,6 @@
 # turtlebot/ — TurtleBot(RPi) 백업 사본 + 전체 실행 안내
 
-작성 2026-08-21 · 대상 저장소 `adas_project_sub`
+최종 RPi 반영 2026-08-25 · 대상 저장소 `adas_project_sub`
 
 ---
 
@@ -95,7 +95,7 @@ sudo sh -c 'ADAS_UART_PORT=/dev/ttyPS1 ADAS_TCP_NODELAY=1 nohup ps_classifier_se
 | 환경변수 | 빼면 |
 |---|---|
 | `ADAS_UART_PORT=/dev/ttyPS1` | **안전 프레임을 한 개도 안 보낸다.** 분류만 조용히 한다 → 로봇은 계속 STOP |
-| `ADAS_TCP_NODELAY=1` | ROI 왕복이 9.7 ms → **51.6 ms** (5배 느려짐). 이유는 [`../docs/PS_TCP_RESPONSE_FIX.md`](../docs/PS_TCP_RESPONSE_FIX.md) |
+| `ADAS_TCP_NODELAY=1` | ROI 왕복이 9.7 ms → **51.6 ms** (5배 느려짐). 이유는 [`../docs/reports/PS_TCP_RESPONSE_FIX.md`](../docs/reports/PS_TCP_RESPONSE_FIX.md) |
 
 확인한다. **`server.log` 가 비어 있어도 정상이다** — 블록 버퍼링 때문이다.
 로그 말고 포트를 본다.
@@ -127,6 +127,9 @@ grep -o 'rtt_us=[0-9]*' /tmp/jetson.log | tail -3
 
 bringup → **모터 토크 ON** → UART 수신 → joy → arbiter → teleop 순으로 올린다.
 
+최종 SLOW 상한은 직선 `0.05 m/s`, 회전 `0.30 rad/s`다. 평상시 조종값보다
+낮게 설정해 감속이 실제 주행과 화면에서 구분되도록 했다.
+
 > bringup 은 매번 토크가 **꺼진 채로** 올라온다. 안 켜면 `/cmd_vel` 에 값이
 > 실려도 바퀴가 안 돈다. 스크립트가 대신 켜 준다.
 
@@ -141,7 +144,8 @@ http://10.10.16.200:8090
 - 영상은 Jetson MJPEG를 브라우저가 직접 받으며 RPi는 재인코딩하지 않는다.
 - 안전 상태는 `/adas/safety_state`를 표시한다. 1초 이상 수신이 없으면
   마지막 상태 대신 `NO SIGNAL`을 표시한다.
-- `/odom` 실측 속력과 `/cmd_vel` 명령값도 함께 표시한다.
+- `/odom` 실측 속력, 조종 입력, 안전 개입에 따른 입력 차단 여부를 표시한다.
+- Arty UART·Jetson 영상·모터 odometry 연결 상태를 각각 표시한다.
 - JSON 상태는 `http://10.10.16.200:8090/api/state`에서 확인한다.
 
 HTML·CSS·JavaScript는 `scripts/ui_server.py`의 `PAGE` 문자열에 있다.
@@ -248,7 +252,7 @@ RPi 를 새로 깔았다면 이것들도 다시 해야 한다. **하나라도 �
 |---|---|---|
 | `ros2_ws/src/rpi_adas_demo/` | RPi `~/ros2_ws/src/rpi_adas_demo/` | 팀 정식 ROS 2 패키지 |
 | `scripts/button_teleop.py` | RPi `~/button_teleop.py` | Xbox 조종. **패키지 밖에 있다** |
-| `scripts/ui_server.py` | RPi `~/ui_server.py` | 통합 HTML·상태 API 서버 |
+| `scripts/ui_server.py` | RPi `~/ui_server.py` | 최종 통합 HTML·상태 API 서버 |
 | `scripts/start_robot.sh` | RPi `~/start_robot.sh` | |
 | `scripts/stop_robot.sh` | RPi `~/stop_robot.sh` | |
 | `tools/rawuart.py` | RPi `~/rawuart.py` | UART 진단 |
@@ -266,6 +270,7 @@ RPi 를 새로 깔았다면 이것들도 다시 해야 한다. **하나라도 �
 | RPi `~/monitor.py` | 초기 디버그용 |
 | RPi `~/robot_nolidar.launch.py` | `turtlebot3_bringup` 설치본과 바이트 동일 |
 | RPi `~/xone/`, `~/xpadneo/` | 별개 git 저장소 |
+| ZIP의 `detector.py`, `yolo_safety_node.py`, ONNX 모델, WebRTC 설정 | 폐기한 RPi 자체 YOLO 구조. 현재는 Jetson 탐지 + Arty 분류·판단 구조 |
 
 ---
 
@@ -310,8 +315,8 @@ grep -a ':1388' /proc/net/tcp
 | 문서 | 내용 |
 |---|---|
 | [`docs/SERVER_START_STOP.md`](docs/SERVER_START_STOP.md) | 기동·종료 상세, 함정 10가지 표 |
-| [`docs/UART_STATUS_REPORT.md`](docs/UART_STATUS_REPORT.md) | UART 점검 근거. "설정이 덜 됐다"는 오진의 실제 원인 |
-| [`../docs/PS_TCP_RESPONSE_FIX.md`](../docs/PS_TCP_RESPONSE_FIX.md) | Arty 응답 40 ms 지연 원인·수정안. **저장소 `docs/` 가 정본** — 여기에 사본을 두지 않는다(2026-08-21 에 두 벌이 갈라진 적 있다) |
+| [`../docs/reports/UART_STATUS_REPORT.md`](../docs/reports/UART_STATUS_REPORT.md) | UART 점검 근거. "설정이 덜 됐다"는 오진의 실제 원인 |
+| [`../docs/reports/PS_TCP_RESPONSE_FIX.md`](../docs/reports/PS_TCP_RESPONSE_FIX.md) | Arty 응답 40 ms 지연 원인·수정안 |
 | [`../docs/reports/E2E_MEASUREMENT_REPORT.md`](../docs/reports/E2E_MEASUREMENT_REPORT.md) | Jetson→Arty→RPi 엔드투엔드 실측 (FPS·지연·UART·재현 절차) |
 
 ---
@@ -330,18 +335,8 @@ grep -a ':1388' /proc/net/tcp
 
 ---
 
-## 9. 남은 일
+## 9. 이 사본의 기준 시점
 
-| | 내용 | 문서 |
-|---|---|---|
-| 1 | **Arty 서버 응답 write 합치기.** 지금은 `ADAS_TCP_NODELAY=1` 로 가려 둔 상태 | `docs/PS_TCP_RESPONSE_FIX.md` §4 |
-| 2 | **Xbox 컨트롤러 미연결** (`/dev/input/js0` 없음). 배터리 교체 후 재페어링 필요할 수 있음 | — |
-| 3 | 판단 임계값이 KR260 값 그대로 (`zone_x`, `stop_height` 등) | — |
-| 4 | 패키지 README 갱신 (§6.1) | — |
-
----
-
-## 10. 이 사본의 기준 시점
-
-2026-08-21 12:5x, RPi `10.10.16.200` 에서 그대로 복사.
-`__pycache__` 만 제외했고 그 외에는 손대지 않았다.
+2026-08-25 최종 RPi 압축본과 대조해 현재 데모에 필요한 파일만 반영했다.
+통합 UI, 조종 입력, 기동 스크립트와 속도 중재 설정은 최종본 기준이며,
+폐기한 RPi 자체 YOLO·WebRTC 파일과 모델은 의도적으로 포함하지 않았다.

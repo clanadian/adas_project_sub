@@ -1,5 +1,9 @@
 # Arty Z7-20 SD 부팅 사용법 (DB)
 
+> 이 문서는 SD 이미지 재구성·복구용이다. 현재 조립된 데모 장비는 네트워크나
+> 파일을 다시 설정하지 말고
+> [`../THREE_BOARD_QUICK_START.md`](../THREE_BOARD_QUICK_START.md)를 사용한다.
+
 ## 1. DB 사용법
 
 ### 1.0 부팅
@@ -25,7 +29,7 @@
 
    ```text
    login: petalinux
-   Password: (Enter — 빈 비밀번호)
+   Password: 123456
    ```
 
    첫 로그인이면 새 비밀번호를 설정하라고 나온다.
@@ -33,14 +37,14 @@
 **네트워크는 따로 잡을 필요가 없다.** DB는 rootfs가 영속 ext4
 (`root=/dev/mmcblk0p2`)로 바뀌면서 `enx020000000020` → `10.10.16.61` 고정
 IP가 이미지에 recipe로 박혀 있다 — 재부팅해도 유지된다. 바로
-`ping 10.10.16.61`이 된다. (예전엔 initramfs라 매번 IP를 다시 잡아야
-했다 — 그 절차와 EB용 안내는
-[`ARTY_NETWORK_SETUP.md`](ARTY_NETWORK_SETUP.md) 참고.)
+RPi에서 `ping 10.10.16.61`로 확인할 수 있다. 현재 네트워크 기준은
+[`ARTY_NETWORK_SETUP.md`](ARTY_NETWORK_SETUP.md)를 참고한다.
 
 ### 1.1 모델 업로드 (PC에서)
 
 ```bash
-scp -r arty/models/roi_classifier_int8_db/export petalinux@10.10.16.61:/home/petalinux/model
+scp -r -J ubuntu@10.10.16.200 arty/models/roi_classifier_int8_db/export \
+  petalinux@10.10.16.61:/home/petalinux/model
 ```
 
 ### 1.2 드라이버 확인
@@ -69,8 +73,10 @@ cmake -S arty/ps_db -B arty/ps_db/build_arm \
     -DCMAKE_BUILD_TYPE=Release
 cmake --build arty/ps_db/build_arm -j2 --target ps_classifier_server
 
-scp arty/ps_db/build_arm/ps_classifier_server petalinux@10.10.16.61:/tmp/
-ssh petalinux@10.10.16.61 'sudo cp /tmp/ps_classifier_server /usr/bin/ps_classifier_server'
+scp -J ubuntu@10.10.16.200 arty/ps_db/build_arm/ps_classifier_server \
+  petalinux@10.10.16.61:/tmp/
+ssh -J ubuntu@10.10.16.200 petalinux@10.10.16.61 \
+  'sudo cp /tmp/ps_classifier_server /usr/bin/ps_classifier_server'
 ```
 
 `-DCMAKE_TOOLCHAIN_FILE`은 절대경로(`$(pwd)/...`)로 준다 — 상대경로를 주면
@@ -98,30 +104,11 @@ PASS: 9216 bytes bit-exact, accelerator time=6570 us
 report: golden_report
 ```
 
-### 1.5 서버 실행
+### 1.5 서버 실행과 동작 확인
 
-```sh
-sudo ps_classifier_server "*" 5000 /home/petalinux/model 6 1 \
-    1467099144 38 1160501223 35 1422046702 38 8.540366656652573e-06
-```
-
-```text
-classifier server listening on port 5000
-```
-
-마지막 인자(`2.919...e-05`)는 `model/manifest.json`의 `logits_scale`이다 —
-confidence 계산에만 쓰이고, 없어도 분류(class_id)는 그대로 나오지만
-confidence가 항상 0으로 나간다.
-
-### 1.6 동작 확인 (PC에서, golden 벡터로 검증된 요청)
-
-```bash
-python3 /path/to/roi_client.py 10.10.16.61 5000 arty/models/roi_classifier_int8_db/export
-```
-
-```text
-status=0 class_id=2 confidence_ppm=992666
-```
+현재 모델 경로, UART 설정과 TCP 옵션이 포함된 서버 명령은
+[`../THREE_BOARD_QUICK_START.md`](../THREE_BOARD_QUICK_START.md)의 Arty 서버
+기동 절차를 그대로 사용한다. 별도의 축약 명령을 사용하지 않는다.
 
 ---
 
@@ -163,10 +150,9 @@ frame=0 roi=1 status=0 class=2 confidence_ppm=658523
 ...
 ```
 
-마지막 인자(`8080`)는 선택이다. 주면 브라우저로
-직접 확인할 때는 Jetson의 `http://192.168.100.2:8080/`을 사용한다. 외부
-브라우저에서는 RPi가 포트 8080을 Jetson으로 DNAT하므로
-`http://10.10.16.200:8080/`으로 접근한다. 통합 화면은
+마지막 인자(`8080`)는 선택이다. 주면 RPi가 포트 8080을 Jetson으로
+전달하므로 작업 PC 브라우저에서는 `http://10.10.16.200:8080/`으로
+접근한다. 통합 화면은
 `http://10.10.16.200:8090/`이다. 마지막 인자를 생략하면 스트리밍 없이
 터미널 로그만 출력한다.
 

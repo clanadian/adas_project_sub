@@ -28,7 +28,7 @@
 ### 1.1 Arty — 분류 서버
 
 ```bash
-ssh petalinux@10.10.16.61
+ssh -J ubuntu@10.10.16.200 petalinux@10.10.16.61
 ```
 
 > 계정은 `root` 가 아니라 **`petalinux`** 다. root 로 붙으면 키가 멀쩡해도
@@ -55,7 +55,7 @@ sudo sh -c 'ADAS_UART_PORT=/dev/ttyPS1 ADAS_TCP_NODELAY=1 nohup ps_classifier_se
 | 환경변수 | 빼면 어떻게 되나 |
 |---|---|
 | `ADAS_UART_PORT=/dev/ttyPS1` | **안전 프레임을 한 개도 안 보낸다.** 조용히 분류만 한다 — 로봇은 계속 STOP |
-| `ADAS_TCP_NODELAY=1` | ROI 왕복이 9.7 ms → **51.6 ms** 로 5배 느려진다 (이유는 `PS_TCP_RESPONSE_FIX.md`) |
+| `ADAS_TCP_NODELAY=1` | ROI 왕복이 9.7 ms → **51.6 ms** 로 5배 느려진다 ([원인 분석](../../docs/reports/PS_TCP_RESPONSE_FIX.md)) |
 
 확인한다. **`server.log` 가 비어 있어도 정상이다** — 파일로 리다이렉트하면
 블록 버퍼링이라 배너가 한동안 안 찍힌다. 로그 말고 포트를 본다.
@@ -203,7 +203,7 @@ python3 ~/rawuart.py
 
 | 증상 | 진짜 원인 |
 |---|---|
-| `ssh root@10.10.16.61` 거부 | 계정이 `petalinux` 다 |
+| Arty SSH에서 `root` 계정 거부 | 계정이 `petalinux` 다. RPi를 `-J`로 경유한다 |
 | `Address already in use` | 이미 떠 있다. busybox `ps` 문법 때문에 못 본 것 |
 | `Stopped (SIGTTIN)` | `sudo ... &` 로 백그라운드 기동함. **스크립트 파일**로 만들어 실행할 것 |
 | `server.log` 가 비었다 | 실패가 아니라 **버퍼링**. 포트로 확인할 것 |
