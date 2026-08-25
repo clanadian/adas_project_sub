@@ -44,8 +44,8 @@ adas_classifier_buffer_status_t adas_classifier_buffers_make_layout(
 
     /*
      * PL은 포인터 자체를 전달받는 것이 아니라 DDR 물리 주소 숫자를 받습니다.
-     * classifier_accelerator_configure_buffers()가 이 값들을 AXI-Lite
-     * 레지스터에 기록하고, PL의 AXI master가 그 주소의 DDR을 읽고 씁니다.
+     * 운영 경로에서 이 값을 AXI-Lite 레지스터에 기록하는 것은 커널 드라이버
+     * (adas_classifier_drv)이고, PL의 AXI master가 그 주소의 DDR을 읽고 씁니다.
      */
     layout->addresses.ifmap =
         reserved_base + ADAS_CLASSIFIER_IFMAP_OFFSET;

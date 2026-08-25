@@ -3,8 +3,8 @@
 
 #include <stdint.h>
 
-#include "accelerator/classifier_accelerator.h"
 #include "driver/adas_classifier_uapi.h"
+#include "model/classifier_contract.h"
 
 #ifdef __cplusplus
 extern "C" {

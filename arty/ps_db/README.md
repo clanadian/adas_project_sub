@@ -22,16 +22,22 @@ TCP server
 | `tcp_roi_server` | persistent TCP server | 구현·테스트 |
 | `roi_preprocessor` | UINT8→INT8, 1-pixel padding | 구현·테스트 |
 | `adas_classifier_drv` | AXI-Lite와 coherent DMA 버퍼 소유 | 구현·실보드 검증 완료 |
-| `classifier_device` | `/dev/adas_classifier` ioctl/mmap wrapper | 구현·빌드 확인 |
-| `pl_mmio` | 초기 bring-up용 `/dev/mem` MMIO | 단위 테스트용으로 유지 |
-| `classifier_registers` | AXI-Lite base와 register offset | 확정 |
-| `classifier_accelerator` | buffer/parameter/start/done 제어 | 구현·실보드 검증 완료 |
+| `classifier_device` | `/dev/adas_classifier` ioctl/mmap wrapper | 구현·실보드 검증 완료 |
+| `classifier_contract` | PS↔PL 공용 자료형과 상수(헤더 전용) | 확정 |
+| `classifier_buffers` | DDR 버퍼 크기·오프셋 상수와 배치 계산 | 구현·테스트 |
 | `classifier_model` | Conv/FC 바이너리 로드·크기 검사 | 구현·테스트 |
 | GAP/FC/argmax | PL 출력 후처리 | 구현·실보드 bit-exact 검증 완료 |
 | `adas_classifier_confidence_ppm` | logits×logits_scale → softmax → confidence_ppm | 구현·golden 벡터 일치 확인 |
 | `ps_safety_bridge` | bbox+분류 결과를 프레임별로 모아 안전 상태 판단 | 구현 (정규화·fallback 매핑 계층은 단위 테스트 없음) |
 | `SafetyJudge` / `HazardLatch` (`common/`) | 거리·경로 판단과 정지 래치 | 구현·단위 테스트 (`test_safety_judge`) |
 | `SafetyTransmitter` / `UartPort` | 20 ms 주기 3-byte 안전 프레임 송신 | 구현·단위 테스트 (`test_safety_transmitter`) |
+
+**PL 을 구동하는 경로는 커널 드라이버 하나뿐이다.** 사용자 공간은
+`/dev/adas_classifier` 만 열고, 레지스터와 DMA 버퍼는 전부 `adas_classifier_drv`
+가 소유한다. 예전에는 `/dev/mem` 으로 AXI-Lite 를 직접 두드리는 bring-up 경로
+(`pl_mmio`, `classifier_accelerator`)가 함께 있었으나 2026-08-25 에 제거했다.
+PL 이 HP0 로 DDR 을 읽으므로 `dma_alloc_coherent()` 로 잡은 버퍼가 필요한데,
+그 경로는 레지스터만 다룰 뿐 버퍼를 대신 만들어 주지 못해 대체 수단이 아니었다.
 
 `실보드 검증`은 `ps_db_golden_test`(PL 출력 bit-exact 대조)와 실제 Jetson 카메라
 연동 테스트로 확인한 것이다. 자세한 내용과 수치는

@@ -4,8 +4,8 @@
 #include <stddef.h>
 #include <stdint.h>
 
-#include "accelerator/classifier_accelerator.h"
 #include "accelerator/classifier_buffers.h"
+#include "model/classifier_contract.h"
 #include "postprocess/classifier_postprocess.h"
 
 #ifdef __cplusplus

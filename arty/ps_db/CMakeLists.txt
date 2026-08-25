@@ -14,9 +14,7 @@ find_package(Threads REQUIRED)
 add_library(adas_ps_core STATIC
     src/network/tcp_roi_server.c
     src/preprocess/roi_preprocessor.c
-    src/accelerator/pl_mmio.c
     src/accelerator/classifier_buffers.c
-    src/accelerator/classifier_accelerator.c
     src/postprocess/classifier_postprocess.c
     src/model/classifier_model.c
     src/driver/classifier_device.c
@@ -77,9 +75,7 @@ endfunction()
 add_adas_ps_test(test_roi_protocol tests/test_roi_protocol.c)
 add_adas_ps_test(test_tcp_roi_server tests/test_tcp_roi_server.c)
 add_adas_ps_test(test_roi_preprocessor tests/test_roi_preprocessor.c)
-add_adas_ps_test(test_pl_mmio tests/test_pl_mmio.c)
 add_adas_ps_test(test_classifier_buffers tests/test_classifier_buffers.c)
-add_adas_ps_test(test_classifier_accelerator tests/test_classifier_accelerator.c)
 add_adas_ps_test(test_classifier_postprocess tests/test_classifier_postprocess.c)
 add_adas_ps_test(test_classifier_model tests/test_classifier_model.c)
 
