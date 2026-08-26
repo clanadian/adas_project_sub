@@ -1,4 +1,11 @@
 # Jetson–Arty ROI Classifier
+## 구현 영상
+
+
+
+https://github.com/user-attachments/assets/4f3002a0-257b-4ed3-a0e3-860f3b1f1564
+
+
 
 ## 데모 기동
 
